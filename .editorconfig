@@ -1,0 +1,41 @@
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Common binary files
+[*.{png,jpg,jpeg,gif,webp,ico,pdf,zip,gz,tar,7z,jar,war,class,exe,dll,so,dylib,woff,woff2,ttf,eot}]
+end_of_line = unset
+charset = unset
+trim_trailing_whitespace = unset
+insert_final_newline = unset
+
+# Markdown
+[*.{md,mdx}]
+indent_size = 2
+trim_trailing_whitespace = false
+
+# License
+[LICENSE]
+indent_size = 3
+
+# Generated Python binary files
+[*.{pyc,pyo,pyd}]
+end_of_line = unset
+charset = unset
+trim_trailing_whitespace = unset
+insert_final_newline = unset
+
+# JSON
+[*.json]
+indent_style = tab
+
+# YAML
+[*.{yml,yaml}]
+indent_size = 2
