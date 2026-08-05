@@ -1,0 +1,52 @@
+* text=auto eol=lf
+
+# Common binary files
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.tar   binary
+*.7z    binary
+*.jar   binary
+*.war   binary
+*.class binary
+*.exe   binary
+*.dll   binary
+*.so    binary
+*.dylib binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+
+# Markdown
+*.md    text diff=markdown whitespace=-blank-at-eol
+*.mdx   text diff=markdown whitespace=-blank-at-eol
+
+# License
+LICENSE text
+
+# Python
+*.py    text diff=python
+*.pyi   text diff=python
+*.pyw   text diff=python
+
+# Generated Python binary files
+*.pyc   binary
+*.pyo   binary
+*.pyd   binary
+
+# JSON
+*.json  text
+
+# YAML
+*.yml   text
+*.yaml  text
+
+# Configuration files
+*.toml  text
