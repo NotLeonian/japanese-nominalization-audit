@@ -54,21 +54,32 @@ Add only independently authored examples or examples whose license clearly
 permits reuse. Do not import distinctive example sets or explanatory wording
 from an incompatible source.
 
-## Validating Changes
+## Testing Changes
 
-Run the static checks from the repository root:
+Run the dependency-free repository tests locally:
 
 ```console
-python3 -m json.tool .codex-plugin/plugin.json
-python3 -m json.tool .agents/plugins/marketplace.json
-python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
-git diff --check
+python -B -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-The plugin validator is optional because it depends on Codex system skill
-files and their Python dependencies. It assumes that the system skills are
-installed in their default location and also checks the bundled skill
-manifest.
+For pushes and pull requests, GitHub Actions runs the same suite on Windows,
+macOS, and Ubuntu with Python 3.13. The suite validates the manifests, their
+cross-file metadata, skill discovery, the core instruction contract, the
+Python check configuration, and local documentation links. It does not replace
+the behavioral checks below.
+
+When Ruff, mypy, and Pyright are available, run the Python checks from the
+repository root:
+
+```console
+ruff format --check --config tests/pyproject.toml tests/test_repository.py
+ruff check --config tests/pyproject.toml tests/test_repository.py
+mypy --config-file tests/pyproject.toml tests/test_repository.py
+pyright --project tests/pyproject.toml tests/test_repository.py
+```
+
+These commands use the Python 3.13 settings in `tests/pyproject.toml`. To apply
+formatting, omit `--check` from the first command.
 
 Review behavioral changes against examples that cover:
 
@@ -85,6 +96,20 @@ Candidate-search examples in the skill are discovery aids, not automatic
 classification tests. Always inspect the surrounding proposition and confirm
 that a rewrite preserves the actor, object, condition, timing, negation,
 modality, and causal direction.
+
+For additional validation in a Codex installation that includes the system
+skill scripts and their Python dependencies, run:
+
+```console
+python3 -m json.tool .codex-plugin/plugin.json
+python3 -m json.tool .agents/plugins/marketplace.json
+python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
+git diff --check
+```
+
+The plugin validator is optional because it depends on files outside this
+repository. It assumes that the Codex system skills are installed in their
+default location and also checks the bundled skill manifest.
 
 For a local Codex test, register the repository as a marketplace and install
 the plugin:

@@ -88,10 +88,27 @@ git diff --check
 
 この検証で確認できるのは、プラグインとスキルの静的な構成です。エージェントの動作を再現したり、日本語の用語が定着しているかどうかを判断したり、エージェントがスキルへ正しく従うことを証明したりはしません。実際の動作を確認するときは、修正が必要な表現と、変更せずに残すべき定着した用語の両方を試してください。
 
+## テスト
+
+追加のパッケージをインストールせずに、リポジトリのテストを実行できます。
+
+```console
+python -B -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+テストでは、JSON ファイルを解析できること、プラグインとマーケットプレイスのメタデータが一致すること、ホストがスキルを検出できる構成になっていること、`japanese-nominalization-audit` の主要な指示が残っていることを確認します。Python の検査で使う設定が正しいことと、Markdown 文書内の相対リンク先が存在することも確認します。テストの対象はリポジトリの構成と、スキルに含まれる静的な指示です。エージェントの動作は再現しないため、日本語の用語が定着しているかどうかを判断したり、エージェントがスキルに従うことを証明したりはしません。
+
+GitHub Actions は、push と pull request のたびに、Python 3.13 を使用して Windows、macOS、Ubuntu で同じテストを実行します。
+
+Ruff、mypy、Pyright で Python コードを検査するためのコマンドは、[CONTRIBUTING.md](CONTRIBUTING.md) に記載しています。
+
 ## リポジトリの構成
 
 ```text
 japanese-nominalization-audit/
+├── .github/
+│   └── workflows/
+│       └── ci.yml
 ├── .agents/
 │   └── plugins/
 │       └── marketplace.json
@@ -100,6 +117,9 @@ japanese-nominalization-audit/
 ├── skills/
 │   └── japanese-nominalization-audit/
 │       └── SKILL.md
+├── tests/
+│   ├── pyproject.toml
+│   └── test_repository.py
 ├── .editorconfig
 ├── .gitattributes
 ├── .gitignore

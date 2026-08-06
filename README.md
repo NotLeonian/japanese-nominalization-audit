@@ -143,10 +143,35 @@ simulate an agent, establish Japanese terminology, or prove that an agent will
 follow the skill correctly. Behavioral review should include both problematic
 phrases and established terms that must remain unchanged.
 
+## Testing
+
+Run the repository test suite without installing additional packages:
+
+```console
+python -B -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+The tests validate the JSON files, cross-check the plugin and marketplace
+metadata, verify skill discovery and the core
+`japanese-nominalization-audit` instructions, verify the Python check
+configuration, and check local links in the Markdown documentation. They
+validate the repository structure and static instruction contract; they do
+not simulate an agent, determine whether Japanese terminology is established,
+or prove that an agent will follow the skill.
+
+For pushes and pull requests, the GitHub Actions workflow runs the same test
+suite on Windows, macOS, and Ubuntu with Python 3.13.
+
+The contributor-facing Ruff, mypy, and Pyright commands are documented in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Repository Layout
 
 ```text
 japanese-nominalization-audit/
+├── .github/
+│   └── workflows/
+│       └── ci.yml
 ├── .agents/
 │   └── plugins/
 │       └── marketplace.json
@@ -155,6 +180,9 @@ japanese-nominalization-audit/
 ├── skills/
 │   └── japanese-nominalization-audit/
 │       └── SKILL.md
+├── tests/
+│   ├── pyproject.toml
+│   └── test_repository.py
 ├── .editorconfig
 ├── .gitattributes
 ├── .gitignore
