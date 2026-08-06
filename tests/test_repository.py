@@ -28,6 +28,7 @@ PYTHON_CHECK_COMMANDS = (
     "pyright --project tests/pyproject.toml tests/test_repository.py",
 )
 SUPPORTED_CI_RUNNERS = ("windows-latest", "macos-latest", "ubuntu-latest")
+MARKDOWN_DOCUMENT_SUFFIXES = frozenset({".md", ".markdown"})
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 SEMVER_PATTERN = re.compile(
@@ -126,7 +127,7 @@ def repository_markdown_documents(root):
         relative_path = Path(os.fsdecode(encoded_path))
         if relative_path.is_absolute() or ".." in relative_path.parts:
             raise ValueError(f"Git returned an unsafe repository path: {relative_path}")
-        if relative_path.suffix != ".md":
+        if relative_path.suffix.casefold() not in MARKDOWN_DOCUMENT_SUFFIXES:
             continue
 
         document = root / relative_path
@@ -687,9 +688,9 @@ class DocumentationTests(unittest.TestCase):
                 root / "skills" / "example" / "SKILL.md",
             )
             environment_documents = (
-                root / ".venv" / "package" / "README.md",
-                root / "venv" / "package" / "README.md",
-                root / "env" / "package" / "README.md",
+                root / ".venv" / "package" / "README.MD",
+                root / "venv" / "package" / "guide.markdown",
+                root / "env" / "package" / "notes.MarkDown",
                 root / ".tox" / "package" / "README.md",
             )
             for document in (*repository_documents, *environment_documents):
@@ -699,6 +700,46 @@ class DocumentationTests(unittest.TestCase):
             self.assertEqual(
                 repository_markdown_documents(root),
                 sorted(repository_documents),
+            )
+
+    def test_document_inventory_supports_common_markdown_suffixes(self):
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            subprocess.run(
+                ("git", "init", "--quiet"),
+                cwd=root,
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            supported_documents = (
+                root / "uppercase" / "README.MD",
+                root / "long-form" / "guide.markdown",
+                root / "mixed-case" / "notes.MarkDown",
+            )
+            unsupported_documents = (
+                root / "docs" / "guide.mdx",
+                root / "docs" / "guide.md.txt",
+                root / "README",
+            )
+            for document in (*supported_documents, *unsupported_documents):
+                document.parent.mkdir(parents=True, exist_ok=True)
+                document.write_text("[missing](not-installed.md)\n", encoding="utf-8")
+
+            subprocess.run(
+                (
+                    "git",
+                    "add",
+                    "--",
+                    os.fspath(supported_documents[0].relative_to(root)),
+                ),
+                cwd=root,
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+
+            self.assertEqual(
+                repository_markdown_documents(root),
+                sorted(supported_documents),
             )
 
     def test_markdown_link_parser_handles_destinations_and_literal_code(self):

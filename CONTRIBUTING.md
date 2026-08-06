@@ -69,10 +69,12 @@ For pushes and pull requests, GitHub Actions installs the pinned packages and
 runs the same suite on Windows, macOS, and Ubuntu with Python 3.13. The suite
 validates the manifests, their cross-file metadata, skill discovery, the core
 instruction contract, the Python check configuration, and local documentation
-links. The link inventory includes tracked Markdown and non-ignored untracked
-Markdown throughout the working tree. Link parsing uses the CommonMark preset;
-extensions must be enabled deliberately if repository documentation begins to
-depend on them. The suite does not replace the behavioral checks below.
+links. The link inventory includes tracked and non-ignored untracked files with
+`.md` or `.markdown` filename extensions throughout the working tree;
+extension matching is case-insensitive. Link parsing uses the CommonMark
+preset; extensions must be enabled deliberately if repository documentation
+begins to depend on them. The suite does not replace the behavioral checks
+below.
 
 The requirements file also pins Ruff, mypy, and Pyright. Run the Python checks
 from the repository root after installing it:
