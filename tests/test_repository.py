@@ -3,6 +3,7 @@ import re
 import tomllib
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +19,7 @@ PYTHON_CHECK_COMMANDS = (
     "pyright --project tests/pyproject.toml tests/test_repository.py",
 )
 SUPPORTED_CI_RUNNERS = ("windows-latest", "macos-latest", "ubuntu-latest")
-IGNORED_DOCUMENT_DIRECTORIES = {".git", ".venv"}
+REPOSITORY_DOCUMENT_PATTERNS = ("*.md", "skills/**/*.md")
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 SEMVER_PATTERN = re.compile(
@@ -70,6 +71,17 @@ def iter_string_values(value):
     elif isinstance(value, list):
         for child in value:
             yield from iter_string_values(child)
+
+
+def repository_markdown_documents(root):
+    return sorted(
+        {
+            path
+            for pattern in REPOSITORY_DOCUMENT_PATTERNS
+            for path in root.glob(pattern)
+            if path.is_file()
+        }
+    )
 
 
 def parse_yaml_string(path, line_number, key, value):
@@ -443,12 +455,30 @@ class SkillTests(unittest.TestCase):
 
 
 class DocumentationTests(unittest.TestCase):
+    def test_document_inventory_excludes_environment_markdown(self):
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            repository_documents = (
+                root / "README.md",
+                root / "skills" / "example" / "SKILL.md",
+            )
+            environment_documents = (
+                root / ".venv" / "package" / "README.md",
+                root / "venv" / "package" / "README.md",
+                root / "env" / "package" / "README.md",
+                root / ".tox" / "package" / "README.md",
+            )
+            for document in (*repository_documents, *environment_documents):
+                document.parent.mkdir(parents=True, exist_ok=True)
+                document.write_text("[missing](not-installed.md)\n", encoding="utf-8")
+
+            self.assertEqual(
+                repository_markdown_documents(root),
+                sorted(repository_documents),
+            )
+
     def test_local_markdown_links_resolve_inside_the_repository(self):
-        documents = sorted(
-            path
-            for path in ROOT.rglob("*.md")
-            if IGNORED_DOCUMENT_DIRECTORIES.isdisjoint(path.parts)
-        )
+        documents = repository_markdown_documents(ROOT)
         self.assertTrue(documents)
 
         for document in documents:
@@ -497,11 +527,7 @@ class DocumentationTests(unittest.TestCase):
             ROOT / "README.ja.md",
             ROOT / "skills" / "japanese-nominalization-audit" / "SKILL.md",
         }
-        documents = {
-            path
-            for path in ROOT.rglob("*.md")
-            if IGNORED_DOCUMENT_DIRECTORIES.isdisjoint(path.parts)
-        }
+        documents = set(repository_markdown_documents(ROOT))
         english_documents = sorted(documents - japanese_documents)
         self.assertTrue(english_documents)
 
