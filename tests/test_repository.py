@@ -32,11 +32,11 @@ MARKDOWN_DOCUMENT_SUFFIXES = frozenset({".md", ".markdown"})
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 SEMVER_PATTERN = re.compile(
-    r"(?:0|[1-9]\d*)\."
-    r"(?:0|[1-9]\d*)\."
-    r"(?:0|[1-9]\d*)"
-    r"(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
-    r"(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?"
+    r"(?:0|[1-9][0-9]*)\."
+    r"(?:0|[1-9][0-9]*)\."
+    r"(?:0|[1-9][0-9]*)"
+    r"(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\Z"
 )
 SKILL_VERSION_PATTERN = re.compile(r'^metadata:\n  version: "([^"]+)"$', re.MULTILINE)
@@ -434,7 +434,20 @@ class ManifestTests(unittest.TestCase):
             with self.subTest(valid_version=version):
                 self.assertIsNotNone(SEMVER_PATTERN.fullmatch(version))
 
-        for version in ("v1.2.3", "1.2", "1.0.0-01", "1.0.0-alpha..1"):
+        non_ascii_digit = "\N{ARABIC-INDIC DIGIT TWO}"
+        for version in (
+            "v1.2.3",
+            "1.2",
+            "1.0.0-01",
+            "1.0.0-alpha..1",
+            f"1{non_ascii_digit}.0.0",
+            f"1.1{non_ascii_digit}.0",
+            f"1.0.1{non_ascii_digit}",
+            f"1.0.0-1{non_ascii_digit}",
+            f"1.0.0-{non_ascii_digit}alpha",
+            f"1.0.0-alpha.1{non_ascii_digit}",
+            f"1.0.0-alpha.{non_ascii_digit}beta",
+        ):
             with self.subTest(invalid_version=version):
                 self.assertIsNone(SEMVER_PATTERN.fullmatch(version))
 
