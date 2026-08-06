@@ -146,10 +146,11 @@ phrases and established terms that must remain unchanged.
 ## Testing
 
 Run the repository test suite from the root of a Git working tree. The suite
-uses the Python standard library and Git; it does not require third-party
-Python packages:
+uses Git and the Python packages pinned in `tests/requirements.txt`. Install
+the packages before running the tests:
 
 ```console
+python -m pip install --disable-pip-version-check -r tests/requirements.txt
 python -B -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
@@ -160,13 +161,17 @@ configuration, and check local links in tracked Markdown and non-ignored
 untracked Markdown throughout the working tree. They validate the repository
 structure and static instruction contract; they do not simulate an agent,
 determine whether Japanese terminology is established, or prove that an agent
-will follow the skill.
+will follow the skill. Link parsing follows the CommonMark preset provided by
+`markdown-it-py`; syntax that requires a separate Markdown extension is not
+enabled.
 
-For pushes and pull requests, the GitHub Actions workflow runs the same test
-suite on Windows, macOS, and Ubuntu with Python 3.13.
+For pushes and pull requests, the GitHub Actions workflow installs the pinned
+packages and runs the same test suite on Windows, macOS, and Ubuntu with Python
+3.13.
 
 The contributor-facing Ruff, mypy, and Pyright commands are documented in
-[CONTRIBUTING.md](CONTRIBUTING.md).
+[CONTRIBUTING.md](CONTRIBUTING.md). The requirements file pins those tools as
+well as the package used to parse Markdown.
 
 ## Repository Layout
 
@@ -185,6 +190,7 @@ japanese-nominalization-audit/
 │       └── SKILL.md
 ├── tests/
 │   ├── pyproject.toml
+│   ├── requirements.txt
 │   └── test_repository.py
 ├── .editorconfig
 ├── .gitattributes

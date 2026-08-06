@@ -57,22 +57,25 @@ from an incompatible source.
 ## Testing Changes
 
 Run the repository tests from the root of a Git working tree. The suite uses
-the Python standard library and Git; it does not require third-party Python
-packages:
+Git and the Python packages pinned in `tests/requirements.txt`. Install the
+packages before running the tests:
 
 ```console
+python -m pip install --disable-pip-version-check -r tests/requirements.txt
 python -B -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-For pushes and pull requests, GitHub Actions runs the same suite on Windows,
-macOS, and Ubuntu with Python 3.13. The suite validates the manifests, their
-cross-file metadata, skill discovery, the core instruction contract, the
-Python check configuration, and local documentation links. The link inventory
-includes tracked Markdown and non-ignored untracked Markdown throughout the
-working tree. The suite does not replace the behavioral checks below.
+For pushes and pull requests, GitHub Actions installs the pinned packages and
+runs the same suite on Windows, macOS, and Ubuntu with Python 3.13. The suite
+validates the manifests, their cross-file metadata, skill discovery, the core
+instruction contract, the Python check configuration, and local documentation
+links. The link inventory includes tracked Markdown and non-ignored untracked
+Markdown throughout the working tree. Link parsing uses the CommonMark preset;
+extensions must be enabled deliberately if repository documentation begins to
+depend on them. The suite does not replace the behavioral checks below.
 
-When Ruff, mypy, and Pyright are available, run the Python checks from the
-repository root:
+The requirements file also pins Ruff, mypy, and Pyright. Run the Python checks
+from the repository root after installing it:
 
 ```console
 ruff format --check --config tests/pyproject.toml tests/test_repository.py
@@ -82,7 +85,10 @@ pyright --project tests/pyproject.toml tests/test_repository.py
 ```
 
 These commands use the Python 3.13 settings in `tests/pyproject.toml`. To apply
-formatting, omit `--check` from the first command.
+formatting, omit `--check` from the first command. The Pyright configuration
+resolves installed packages from `.venv` at the repository root; install the
+test packages in that environment or override the virtual-environment settings
+locally when using a different environment.
 
 Review behavioral changes against examples that cover:
 

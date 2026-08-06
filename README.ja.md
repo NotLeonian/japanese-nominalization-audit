@@ -90,17 +90,18 @@ git diff --check
 
 ## テスト
 
-Git の作業ツリーのルートで、リポジトリのテストを実行してください。テストでは Python の標準ライブラリと Git を使うため、第三者が提供する Python パッケージを追加する必要はありません。
+Git の作業ツリーのルートで、リポジトリのテストを実行してください。テストでは Git と、`tests/requirements.txt` でバージョンを固定した Python パッケージを使います。先にパッケージをインストールしてください。
 
 ```console
+python -m pip install --disable-pip-version-check -r tests/requirements.txt
 python -B -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-テストでは、JSON ファイルを解析できること、プラグインとマーケットプレイスのメタデータが一致すること、ホストがスキルを検出できる構成になっていること、`japanese-nominalization-audit` の主要な指示が残っていることを確認します。Python の検査で使う設定が正しいことも確認します。Markdown 文書内の相対リンクについては、Git が追跡している文書と、未追跡でも Git が無視していない文書を作業ツリー全体から集め、リンク先が存在することを確認します。テストの対象はリポジトリの構成と、スキルに含まれる静的な指示です。エージェントの動作は再現しないため、日本語の用語が定着しているかどうかを判断したり、エージェントがスキルに従うことを証明したりはしません。
+テストでは、JSON ファイルを解析できること、プラグインとマーケットプレイスのメタデータが一致すること、ホストがスキルを検出できる構成になっていること、`japanese-nominalization-audit` の主要な指示が残っていることを確認します。Python の検査で使う設定が正しいことも確認します。Markdown 文書内の相対リンクについては、Git が追跡している文書と、未追跡でも Git が無視していない文書を作業ツリー全体から集め、リンク先が存在することを確認します。リンクは `markdown-it-py` の CommonMark preset で解析します。別の Markdown 拡張が必要な構文は解析しません。テストの対象はリポジトリの構成と、スキルに含まれる静的な指示です。エージェントの動作は再現しないため、日本語の用語が定着しているかどうかを判断したり、エージェントがスキルに従うことを証明したりはしません。
 
-GitHub Actions は、push と pull request のたびに、Python 3.13 を使用して Windows、macOS、Ubuntu で同じテストを実行します。
+GitHub Actions は、push と pull request のたびに、バージョンを固定したパッケージをインストールし、Python 3.13 を使用して Windows、macOS、Ubuntu で同じテストを実行します。
 
-Ruff、mypy、Pyright で Python コードを検査するためのコマンドは、[CONTRIBUTING.md](CONTRIBUTING.md) に記載しています。
+Ruff、mypy、Pyright で Python コードを検査するためのコマンドは、[CONTRIBUTING.md](CONTRIBUTING.md) に記載しています。`tests/requirements.txt` では、これらのツールと Markdown の解析に使うパッケージのバージョンを固定しています。
 
 ## リポジトリの構成
 
@@ -119,6 +120,7 @@ japanese-nominalization-audit/
 │       └── SKILL.md
 ├── tests/
 │   ├── pyproject.toml
+│   ├── requirements.txt
 │   └── test_repository.py
 ├── .editorconfig
 ├── .gitattributes

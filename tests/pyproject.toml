@@ -3,6 +3,8 @@ python_version = "3.13"
 
 [tool.pyright]
 pythonVersion = "3.13"
+venv = ".venv"
+venvPath = ".."
 
 [tool.ruff]
 target-version = "py313"

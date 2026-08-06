@@ -1,4 +1,3 @@
-import html
 import json
 import os
 import re
@@ -9,12 +8,18 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import unquote, urlsplit
 
+from markdown_it import MarkdownIt
+
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_MANIFEST_PATH = ROOT / ".codex-plugin" / "plugin.json"
 MARKETPLACE_PATH = ROOT / ".agents" / "plugins" / "marketplace.json"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 PYPROJECT_PATH = ROOT / "tests" / "pyproject.toml"
+REQUIREMENTS_PATH = ROOT / "tests" / "requirements.txt"
 TEST_COMMAND = "python -B -m unittest discover -s tests -p 'test_*.py' -v"
+TEST_DEPENDENCY_COMMAND = (
+    "python -m pip install --disable-pip-version-check -r tests/requirements.txt"
+)
 PYTHON_CHECK_COMMANDS = (
     "ruff format --check --config tests/pyproject.toml tests/test_repository.py",
     "ruff check --config tests/pyproject.toml tests/test_repository.py",
@@ -31,9 +36,6 @@ SEMVER_PATTERN = re.compile(
     r"(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
     r"(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\Z"
-)
-MARKDOWN_ESCAPED_PUNCTUATION_PATTERN = re.compile(
-    r"\\([!\"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~])"
 )
 SKILL_VERSION_PATTERN = re.compile(r'^metadata:\n  version: "([^"]+)"$', re.MULTILINE)
 JAPANESE_CHARACTER_PATTERN = re.compile(r"[ぁ-んァ-ヶ一-龠々]")
@@ -202,283 +204,22 @@ def parse_yaml_string(path, line_number, key, value):
     return parsed_value
 
 
-def markdown_leading_indentation(line):
-    width = 0
-    index = 0
-    while index < len(line) and line[index] in " \t":
-        if line[index] == "\t":
-            width += 4 - (width % 4)
-        else:
-            width += 1
-        index += 1
-    return width, index
-
-
-def mask_markdown_code(markdown):
-    characters = list(markdown)
-    fence_character = None
-    fence_length = 0
-    in_indented_code = False
-    may_start_indented_code = True
-    offset = 0
-
-    for line in markdown.splitlines(keepends=True):
-        content = line.rstrip("\r\n")
-        is_blank = not content.strip(" \t")
-        indentation, content_start = markdown_leading_indentation(content)
-        stripped = content[content_start:]
-        marker_length = 0
-        if indentation <= 3 and stripped and stripped[0] in "`~":
-            marker_length = len(stripped) - len(stripped.lstrip(stripped[0]))
-
-        is_fence = marker_length >= 3
-        if fence_character is not None:
-            characters[offset : offset + len(content)] = " " * len(content)
-            if (
-                is_fence
-                and stripped[0] == fence_character
-                and marker_length >= fence_length
-                and not stripped[marker_length:].strip(" \t")
-            ):
-                fence_character = None
-                fence_length = 0
-                may_start_indented_code = True
-        else:
-            if in_indented_code and not is_blank and indentation < 4:
-                in_indented_code = False
-
-            if in_indented_code or (
-                not is_blank and indentation >= 4 and may_start_indented_code
-            ):
-                in_indented_code = True
-                characters[offset : offset + len(content)] = " " * len(content)
-            elif is_fence and not (
-                stripped[0] == "`" and "`" in stripped[marker_length:]
-            ):
-                fence_character = stripped[0]
-                fence_length = marker_length
-                characters[offset : offset + len(content)] = " " * len(content)
-            else:
-                may_start_indented_code = is_blank
-
-        offset += len(line)
-
-    masked = "".join(characters)
-    characters = list(masked)
-    index = 0
-    while index < len(masked):
-        if masked[index] != "`" or markdown_character_is_escaped(masked, index):
-            index += 1
-            continue
-
-        delimiter_length = len(masked[index:]) - len(masked[index:].lstrip("`"))
-        search_index = index + delimiter_length
-        closing_index = None
-        while search_index < len(masked):
-            next_backtick = masked.find("`", search_index)
-            if next_backtick < 0:
-                break
-            run_length = len(masked[next_backtick:]) - len(
-                masked[next_backtick:].lstrip("`")
-            )
-            if run_length == delimiter_length:
-                closing_index = next_backtick
-                break
-            search_index = next_backtick + run_length
-
-        if closing_index is None:
-            index += delimiter_length
-            continue
-
-        end = closing_index + delimiter_length
-        for character_index in range(index, end):
-            if characters[character_index] not in "\r\n":
-                characters[character_index] = " "
-        index = end
-
-    return "".join(characters)
-
-
-def mask_markdown_html_comments(markdown):
-    characters = list(markdown)
-    index = 0
-    while index < len(markdown):
-        opening_index = markdown.find("<!--", index)
-        if opening_index < 0:
-            break
-        closing_index = markdown.find("-->", opening_index + 4)
-        end = len(markdown) if closing_index < 0 else closing_index + 3
-        for character_index in range(opening_index, end):
-            if characters[character_index] not in "\r\n":
-                characters[character_index] = " "
-        index = end
-    return "".join(characters)
-
-
-def markdown_character_is_escaped(markdown, index):
-    backslashes = 0
-    index -= 1
-    while index >= 0 and markdown[index] == "\\":
-        backslashes += 1
-        index -= 1
-    return backslashes % 2 == 1
-
-
-def skip_markdown_whitespace(markdown, index):
-    line_endings = 0
-    while index < len(markdown):
-        if markdown[index] in " \t":
-            index += 1
-            continue
-        if markdown[index] == "\r":
-            index += 1
-            if index < len(markdown) and markdown[index] == "\n":
-                index += 1
-        elif markdown[index] == "\n":
-            index += 1
-        else:
-            break
-        line_endings += 1
-        if line_endings > 1:
-            return None
-    return index
-
-
-def find_markdown_title_end(markdown, index):
-    closing_character = {"\"": "\"", "'": "'", "(": ")"}.get(markdown[index])
-    if closing_character is None:
-        return None
-
-    index += 1
-    title_start = index
-    while index < len(markdown):
-        if markdown[index] == "\\" and index + 1 < len(markdown):
-            index += 2
-            continue
-        if markdown[index] == closing_character:
-            if re.search(
-                r"(?:\r\n?|\n)[ \t]*(?:\r\n?|\n)",
-                markdown[title_start:index],
-            ):
-                return None
-            return index + 1
-        index += 1
-    return None
-
-
-def parse_markdown_link_destination(markdown, opening_parenthesis):
-    index = skip_markdown_whitespace(markdown, opening_parenthesis + 1)
-    if index is None:
-        return None
-    destination_start = index
-
-    if index < len(markdown) and markdown[index] == "<":
-        index += 1
-        destination_start = index
-        while index < len(markdown):
-            if markdown[index] == "\\" and index + 1 < len(markdown):
-                index += 2
-                continue
-            if markdown[index] == ">":
-                destination = markdown[destination_start:index]
-                index += 1
-                break
-            if markdown[index] in "<\r\n":
-                return None
-            index += 1
-        else:
-            return None
-    else:
-        depth = 0
-        while index < len(markdown):
-            character = markdown[index]
-            if character == "\\" and index + 1 < len(markdown):
-                index += 2
-                continue
-            if character == "(":
-                depth += 1
-            elif character == ")":
-                if depth == 0:
-                    destination = markdown[destination_start:index]
-                    return destination, index + 1
-                depth -= 1
-            elif character in " \t\r\n":
-                if depth:
-                    return None
-                break
-            elif character == "<":
-                return None
-            index += 1
-        else:
-            return None
-
-        if depth:
-            return None
-        destination = markdown[destination_start:index]
-
-    index = skip_markdown_whitespace(markdown, index)
-    if index is None:
-        return None
-    if index < len(markdown) and markdown[index] == ")":
-        return destination, index + 1
-    if index >= len(markdown):
-        return None
-
-    title_end = find_markdown_title_end(markdown, index)
-    if title_end is None:
-        return None
-    index = skip_markdown_whitespace(markdown, title_end)
-    if index is None:
-        return None
-    if index >= len(markdown) or markdown[index] != ")":
-        return None
-    return destination, index + 1
-
-
-def normalize_markdown_destination(destination):
-    unescaped = MARKDOWN_ESCAPED_PUNCTUATION_PATTERN.sub(r"\1", destination)
-    return html.unescape(unescaped)
+MARKDOWN_PARSER = MarkdownIt("commonmark")
 
 
 def iter_markdown_link_destinations(markdown):
-    markdown = mask_markdown_html_comments(mask_markdown_code(markdown))
-    label_stack = []
-    index = 0
-    while index < len(markdown):
-        if markdown_character_is_escaped(markdown, index):
-            index += 1
-            continue
+    for token in MARKDOWN_PARSER.parse(markdown):
+        for child in token.children or ():
+            attribute = {
+                "image": "src",
+                "link_open": "href",
+            }.get(child.type)
+            if attribute is None:
+                continue
 
-        if markdown[index] == "[":
-            is_image = (
-                index > 0
-                and markdown[index - 1] == "!"
-                and not markdown_character_is_escaped(markdown, index - 1)
-            )
-            label_stack.append([index, False, is_image])
-            index += 1
-            continue
-
-        if markdown[index] != "]" or not label_stack:
-            index += 1
-            continue
-
-        _, contains_link, is_image = label_stack.pop()
-        if contains_link or index + 1 >= len(markdown) or markdown[index + 1] != "(":
-            index += 1
-            continue
-
-        parsed_link = parse_markdown_link_destination(markdown, index + 1)
-        if parsed_link is None:
-            index += 1
-            continue
-
-        destination, index = parsed_link
-        yield normalize_markdown_destination(destination)
-        if not is_image:
-            for label in label_stack:
-                if not label[2]:
-                    label[1] = True
+            destination = child.attrGet(attribute)
+            if isinstance(destination, str):
+                yield destination
 
 
 def parse_front_matter(path):
@@ -561,6 +302,7 @@ class RepositoryStructureTests(unittest.TestCase):
             "SECURITY.md",
             "skills/japanese-nominalization-audit/SKILL.md",
             "tests/pyproject.toml",
+            "tests/requirements.txt",
             "tests/test_repository.py",
         )
         for relative_path in expected_files:
@@ -961,7 +703,7 @@ second")
             [
                 "docs/setup(legacy).md",
                 "docs/setup(legacy).md",
-                "docs/setup (legacy).md",
+                "docs/setup%20(legacy).md",
                 "docs/setup(legacy).md",
                 "images/diagram(legacy).png",
                 "ok.md",
@@ -969,6 +711,89 @@ second")
                 "inner.md",
                 "docs/multiline.md",
             ],
+        )
+
+    def test_markdown_link_parser_resolves_reference_links(self):
+        markdown = """
+[full][setup]
+[collapsed][]
+[shortcut]
+![diagram][asset]
+
+[setup]: docs/full.md "Setup"
+[collapsed]: docs/collapsed.md
+[shortcut]: docs/shortcut.md
+[asset]: images/diagram.png
+"""
+        self.assertEqual(
+            list(iter_markdown_link_destinations(markdown)),
+            [
+                "docs/full.md",
+                "docs/collapsed.md",
+                "docs/shortcut.md",
+                "images/diagram.png",
+            ],
+        )
+
+    def test_markdown_link_parser_ignores_raw_html_literal_blocks(self):
+        for tag in ("pre", "script", "style", "textarea"):
+            with self.subTest(tag=tag):
+                markdown = f"""<{tag} data-example="true">
+[example](missing.md)
+</{tag}>
+[outside](outside.md)
+"""
+                self.assertEqual(
+                    list(iter_markdown_link_destinations(markdown)),
+                    ["outside.md"],
+                )
+
+        self.assertEqual(
+            list(
+                iter_markdown_link_destinations(
+                    "<SCRIPT>\n[example](missing.md)\n"
+                    "</style> [same line](missing-suffix.md)\n"
+                    "[outside](outside.md)\n"
+                )
+            ),
+            ["outside.md"],
+        )
+        self.assertEqual(
+            list(
+                iter_markdown_link_destinations(
+                    "prefix <pre>[inline](inside.md)</pre>\n"
+                )
+            ),
+            ["inside.md"],
+        )
+        self.assertEqual(
+            list(
+                iter_markdown_link_destinations(
+                    "- <pre>\n  [example](missing.md)\n- [outside](outside.md)\n"
+                )
+            ),
+            ["outside.md"],
+        )
+
+    def test_markdown_link_parser_preserves_markdown_boundaries(self):
+        markdown = """
+> ```text
+> [code][missing]
+> ```
+
+- <pre>
+  [example](missing.md)
+  </pre>
+
+[text <span data-example="][missing]">
+[invalid](<span>suffix)
+[outside](outside.md)
+
+[missing]: missing.md
+"""
+        self.assertEqual(
+            list(iter_markdown_link_destinations(markdown)),
+            ["outside.md"],
         )
 
     def test_local_markdown_links_resolve_inside_the_repository(self):
@@ -1001,8 +826,10 @@ second")
             ROOT / "CONTRIBUTING.md",
             WORKFLOW_PATH,
         ):
-            with self.subTest(path=path.relative_to(ROOT)):
-                self.assertIn(TEST_COMMAND, path.read_text(encoding="utf-8"))
+            contents = path.read_text(encoding="utf-8")
+            for command in (TEST_DEPENDENCY_COMMAND, TEST_COMMAND):
+                with self.subTest(path=path.relative_to(ROOT), command=command):
+                    self.assertIn(command, contents)
 
     def test_contributing_documents_the_python_checks(self):
         contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
@@ -1046,6 +873,8 @@ second")
         tools = config["tool"]
         self.assertEqual(tools["mypy"]["python_version"], "3.13")
         self.assertEqual(tools["pyright"]["pythonVersion"], "3.13")
+        self.assertEqual(tools["pyright"]["venv"], ".venv")
+        self.assertEqual(tools["pyright"]["venvPath"], "..")
         self.assertEqual(tools["ruff"]["target-version"], "py313")
         self.assertEqual(tools["ruff"]["format"]["quote-style"], "preserve")
         self.assertEqual(tools["ruff"]["lint"]["extend-select"], ["I"])
@@ -1061,6 +890,19 @@ second")
 
         self.assertIn("uses: actions/setup-python@v6", workflow)
         self.assertIn('python-version: "3.13"', workflow)
+        self.assertIn(TEST_DEPENDENCY_COMMAND, workflow)
+
+    def test_test_dependencies_are_pinned(self):
+        self.assertEqual(
+            REQUIREMENTS_PATH.read_text(encoding="utf-8").splitlines(),
+            [
+                "markdown-it-py==4.2.0",
+                "mdurl==0.1.2",
+                "mypy==2.3.0",
+                "pyright==1.1.411",
+                "ruff==0.16.1",
+            ],
+        )
 
 
 if __name__ == "__main__":
