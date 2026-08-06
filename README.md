@@ -159,16 +159,28 @@ metadata, verify skill discovery and the core
 `japanese-nominalization-audit` instructions, verify the Python check
 configuration, and check local links in tracked and non-ignored untracked files
 with `.md` or `.markdown` filename extensions throughout the working tree;
-extension matching is case-insensitive. They validate the repository
-structure and static instruction contract; they do not simulate an agent,
-determine whether Japanese terminology is established, or prove that an agent
-will follow the skill. Link parsing follows the CommonMark preset provided by
-`markdown-it-py`; syntax that requires a separate Markdown extension is not
-enabled.
+extension matching is case-insensitive. For hyperlinks to Markdown documents,
+the tests also verify nonempty fragments against generated heading anchors and
+explicit `<a name>` custom anchors. Heading anchors are generated locally from
+GitHub's documented rules for case, whitespace, punctuation, markup, and
+duplicate headings. This is not a live comparison with GitHub rendering, so
+future GitHub changes and uncommon Unicode edge cases may differ. GitHub
+Markdown source-line links such as `?plain=1#L10` are checked against the
+target file's line range instead of its heading anchors. Fragments for other
+file formats and browser text-fragment directives such as `#:~:text=example`
+are outside this check.
 
-For pushes and pull requests, the GitHub Actions workflow installs the pinned
-packages and runs the same test suite on Windows, macOS, and Ubuntu with Python
-3.13.
+The tests validate the repository structure and static instruction contract;
+they do not simulate an agent, determine whether Japanese terminology is
+established, or prove that an agent will follow the skill. Link parsing follows
+the CommonMark preset provided by `markdown-it-py`; syntax that requires a
+separate Markdown extension is not enabled.
+
+The GitHub Actions workflow runs automatically for pull requests and pushes to
+`main`. Pushes to non-`main` pull request branches therefore produce only the
+pull-request-triggered run. The workflow can also be dispatched manually. Each
+run installs the pinned packages and runs the same test suite on Windows,
+macOS, and Ubuntu with Python 3.13.
 
 The contributor-facing Ruff, mypy, and Pyright commands are documented in
 [CONTRIBUTING.md](CONTRIBUTING.md). The requirements file pins those tools as

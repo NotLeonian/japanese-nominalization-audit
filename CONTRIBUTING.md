@@ -65,16 +65,24 @@ python -m pip install --disable-pip-version-check -r tests/requirements.txt
 python -B -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-For pushes and pull requests, GitHub Actions installs the pinned packages and
-runs the same suite on Windows, macOS, and Ubuntu with Python 3.13. The suite
-validates the manifests, their cross-file metadata, skill discovery, the core
-instruction contract, the Python check configuration, and local documentation
-links. The link inventory includes tracked and non-ignored untracked files with
-`.md` or `.markdown` filename extensions throughout the working tree;
-extension matching is case-insensitive. Link parsing uses the CommonMark
-preset; extensions must be enabled deliberately if repository documentation
-begins to depend on them. The suite does not replace the behavioral checks
-below.
+GitHub Actions runs automatically for pull requests and pushes to `main`.
+Pushes to non-`main` pull request branches therefore produce only the
+pull-request-triggered run. The workflow can also be dispatched manually. Each
+run installs the pinned packages and runs the same suite on Windows, macOS, and
+Ubuntu with Python 3.13. The suite validates the manifests, their cross-file
+metadata, skill discovery, the core instruction contract, the Python check
+configuration, and local documentation links. The link inventory includes
+tracked and non-ignored untracked files with `.md` or `.markdown` filename
+extensions throughout the working tree; extension matching is case-insensitive.
+For Markdown hyperlink targets, nonempty fragments must match a generated
+heading anchor or an explicit `<a name>` custom anchor. The local heading-anchor
+generator implements GitHub's documented rules, but it is not a live comparison
+with GitHub rendering. Markdown source-line links such as `?plain=1#L10` are
+checked against the target file's line range instead. Fragments for other file
+formats and browser text-fragment directives such as `#:~:text=example` are not
+checked. Link parsing uses the CommonMark preset; extensions must be enabled
+deliberately if repository documentation begins to depend on them. The suite
+does not replace the behavioral checks below.
 
 The requirements file also pins Ruff, mypy, and Pyright. Run the Python checks
 from the repository root after installing it:

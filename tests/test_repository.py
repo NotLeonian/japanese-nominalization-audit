@@ -3,11 +3,13 @@ import os
 import re
 import subprocess
 import tomllib
+import unicodedata
 import unittest
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from markdown_it import MarkdownIt
 
@@ -29,6 +31,7 @@ PYTHON_CHECK_COMMANDS = (
 )
 SUPPORTED_CI_RUNNERS = ("windows-latest", "macos-latest", "ubuntu-latest")
 MARKDOWN_DOCUMENT_SUFFIXES = frozenset({".md", ".markdown"})
+GITHUB_SOURCE_LINE_FRAGMENT_PATTERN = re.compile(r"L([0-9]+)(?:-L([0-9]+))?\Z")
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 SEMVER_PATTERN = re.compile(
@@ -209,16 +212,27 @@ def parse_yaml_string(path, line_number, key, value):
 MARKDOWN_PARSER = MarkdownIt("commonmark")
 
 
+@dataclass(frozen=True)
+class MarkdownDestination:
+    target: str
+    is_hyperlink: bool
+
+
 class MarkdownDestinationHTMLParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self.destinations: list[str] = []
+        self.destinations: list[MarkdownDestination] = []
+        self.anchors: set[str] = set()
 
     def handle_starttag(
         self,
         tag: str,
         attrs: list[tuple[str, str | None]],
     ) -> None:
+        for name, value in attrs:
+            if value and tag == "a" and name == "name":
+                self.anchors.add(value)
+
         destination_attribute = {
             "a": "href",
             "img": "src",
@@ -230,11 +244,16 @@ class MarkdownDestinationHTMLParser(HTMLParser):
             if name != destination_attribute:
                 continue
             if value is not None:
-                self.destinations.append(value)
+                self.destinations.append(
+                    MarkdownDestination(
+                        target=value,
+                        is_hyperlink=tag == "a",
+                    )
+                )
             return
 
 
-def iter_markdown_link_destinations(markdown):
+def iter_markdown_destinations(markdown):
     environment = {}
     for token in MARKDOWN_PARSER.parse(markdown, environment):
         if token.type not in {"html_block", "inline"}:
@@ -252,6 +271,87 @@ def iter_markdown_link_destinations(markdown):
         yield from parser.destinations
 
 
+def iter_markdown_link_destinations(markdown):
+    for destination in iter_markdown_destinations(markdown):
+        yield destination.target
+
+
+def markdown_inline_text(tokens):
+    parts = []
+    for token in tokens:
+        if token.type in {"code_inline", "text"}:
+            parts.append(token.content)
+        elif token.type in {"hardbreak", "softbreak"}:
+            parts.append("\n")
+    return "".join(parts)
+
+
+def github_heading_slug(value):
+    slug_characters = []
+    for character in value.lower():
+        category = unicodedata.category(character)
+        if character == " ":
+            slug_characters.append("-")
+        elif (
+            character == "-"
+            or category[0] in {"L", "M"}
+            or category
+            in {
+                "Nd",
+                "Nl",
+                "Pc",
+            }
+        ):
+            slug_characters.append(character)
+    return "".join(slug_characters)
+
+
+class GitHubHeadingSlugger:
+    def __init__(self):
+        self.occurrences = {}
+
+    def slug(self, value):
+        original_slug = github_heading_slug(value)
+        result = original_slug
+        count = self.occurrences.get(original_slug, 0)
+        while result in self.occurrences:
+            count += 1
+            result = f"{original_slug}-{count}"
+        self.occurrences[original_slug] = count
+        self.occurrences[result] = 0
+        return result
+
+
+def markdown_document_anchors(markdown):
+    environment = {}
+    tokens = MARKDOWN_PARSER.parse(markdown, environment)
+    slugger = GitHubHeadingSlugger()
+    anchors = set()
+
+    for index, token in enumerate(tokens):
+        if token.type == "heading_open" and index + 1 < len(tokens):
+            inline_token = tokens[index + 1]
+            if inline_token.type == "inline" and inline_token.children is not None:
+                slug = slugger.slug(markdown_inline_text(inline_token.children))
+                if slug:
+                    anchors.add(slug)
+
+        if token.type not in {"html_block", "inline"}:
+            continue
+        parser = MarkdownDestinationHTMLParser()
+        parser.feed(
+            MARKDOWN_PARSER.renderer.render(
+                [token],
+                MARKDOWN_PARSER.options,
+                environment,
+            )
+        )
+        parser.close()
+        anchors.update(parser.anchors)
+
+    return anchors
+
+
 def resolve_markdown_local_path(document, repository_root, target):
     parsed_target = urlsplit(target)
     if parsed_target.scheme or parsed_target.netloc:
@@ -259,6 +359,8 @@ def resolve_markdown_local_path(document, repository_root, target):
 
     decoded_path = unquote(parsed_target.path)
     if not decoded_path:
+        if parsed_target.fragment:
+            return document.resolve()
         return None
 
     if decoded_path.startswith("/"):
@@ -328,6 +430,90 @@ def assert_path_is_inside(test_case, path, parent):
         path.resolve().relative_to(parent.resolve())
     except ValueError:
         test_case.fail(f"{path} resolves outside {parent}")
+
+
+def assert_local_markdown_links_resolve(test_case, documents, repository_root):
+    anchors_by_document = {}
+    for document in documents:
+        text = document.read_text(encoding="utf-8")
+        for destination in iter_markdown_destinations(text):
+            resolved_path = resolve_markdown_local_path(
+                document,
+                repository_root,
+                destination.target,
+            )
+            if resolved_path is None:
+                continue
+
+            assert_path_is_inside(test_case, resolved_path, repository_root)
+            test_case.assertTrue(
+                resolved_path.exists(),
+                (
+                    f"{destination.target!r} in "
+                    f"{document.relative_to(repository_root)} does not exist"
+                ),
+            )
+
+            parsed_target = urlsplit(destination.target)
+            raw_fragment = parsed_target.fragment
+            decoded_fragment = unquote(raw_fragment)
+            fragment_candidates = {raw_fragment, decoded_fragment}
+            if (
+                not destination.is_hyperlink
+                or not raw_fragment
+                or any(fragment.casefold() == "top" for fragment in fragment_candidates)
+                or any(":~:text=" in fragment for fragment in fragment_candidates)
+                or not resolved_path.is_file()
+                or resolved_path.suffix.casefold() not in MARKDOWN_DOCUMENT_SUFFIXES
+            ):
+                continue
+
+            plain_values = parse_qs(
+                parsed_target.query,
+                keep_blank_values=True,
+            ).get("plain", [])
+            if "1" in plain_values:
+                source_line_match = GITHUB_SOURCE_LINE_FRAGMENT_PATTERN.fullmatch(
+                    decoded_fragment
+                )
+                if source_line_match is None:
+                    test_case.fail(
+                        f"{destination.target!r} in "
+                        f"{document.relative_to(repository_root)} does not use a "
+                        "GitHub source line fragment"
+                    )
+                    continue
+                first_line = int(source_line_match.group(1))
+                last_line_group = source_line_match.group(2)
+                last_line = (
+                    int(last_line_group) if last_line_group is not None else first_line
+                )
+                line_count = len(resolved_path.read_text(encoding="utf-8").splitlines())
+                test_case.assertTrue(
+                    1 <= first_line <= last_line <= line_count,
+                    (
+                        f"{destination.target!r} in "
+                        f"{document.relative_to(repository_root)} refers outside "
+                        f"the {line_count} source lines in "
+                        f"{resolved_path.relative_to(repository_root)}"
+                    ),
+                )
+                continue
+
+            anchors = anchors_by_document.get(resolved_path)
+            if anchors is None:
+                anchors = markdown_document_anchors(
+                    resolved_path.read_text(encoding="utf-8")
+                )
+                anchors_by_document[resolved_path] = anchors
+            test_case.assertTrue(
+                anchors.intersection(fragment_candidates),
+                (
+                    f"{destination.target!r} in "
+                    f"{document.relative_to(repository_root)} does not match "
+                    f"an anchor in {resolved_path.relative_to(repository_root)}"
+                ),
+            )
 
 
 class RepositoryStructureTests(unittest.TestCase):
@@ -926,6 +1112,59 @@ Inline <A HREF=docs/inline.html>link</A> and
             ["outside.md"],
         )
 
+    def test_markdown_document_anchors_follow_github_heading_rules(self):
+        markdown = """
+# Testing
+## Markup *and* `code`: 日本語!
+
+Setext Heading
+==============
+
+## Echo
+## Echo
+## Echo-1
+## Echo
+###### Level Six
+## ![Architecture](diagram.svg) Diagram
+## Before ![Architecture](diagram.svg) After
+## Diagram ![Architecture](diagram.svg)
+## 😄 Emoji
+## Привет non-latin 你好
+
+<a name="custom anchor"></a>
+<a name="literal%20anchor"></a>
+<script id="script-id"><a name="script-anchor"></a></script>
+<iframe id="iframe-id"></iframe>
+<textarea id="textarea-id"></textarea>
+
+`<a name="code-anchor"></a>`
+<!-- <span id="comment-anchor"></span> -->
+"""
+        self.assertEqual(
+            markdown_document_anchors(markdown),
+            {
+                "-diagram",
+                "-emoji",
+                "before--after",
+                "custom anchor",
+                "diagram-",
+                "echo",
+                "echo-1",
+                "echo-1-1",
+                "echo-2",
+                "level-six",
+                "literal%20anchor",
+                "markup-and-code-日本語",
+                "привет-non-latin-你好",
+                "setext-heading",
+                "testing",
+            },
+        )
+        self.assertEqual(
+            github_heading_slug(" Leading\tand punctuation! "),
+            "-leadingand-punctuation-",
+        )
+
     def test_local_markdown_paths_use_document_and_repository_roots(self):
         with TemporaryDirectory() as temporary_directory:
             repository_root = Path(temporary_directory).resolve()
@@ -942,7 +1181,7 @@ Inline <A HREF=docs/inline.html>link</A> and
                     / "japanese-nominalization-audit"
                     / "issues",
                 ),
-                ("#section", None),
+                ("#section", document.resolve()),
                 ("?plain=1", None),
                 ("https://example.com/guide", None),
                 ("//cdn.example.com/guide", None),
@@ -958,23 +1197,89 @@ Inline <A HREF=docs/inline.html>link</A> and
                         expected,
                     )
 
+    def test_local_markdown_link_fragments_are_validated(self):
+        with TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory).resolve()
+            document = repository_root / "guide.md"
+            target_document = repository_root / "target.MD"
+            asset = repository_root / "asset.svg"
+            target_document.write_text(
+                """# Target Section
+
+## 日本語の見出し
+
+<a name="custom anchor"></a>
+<a name="literal%20anchor"></a>
+""",
+                encoding="utf-8",
+            )
+            asset.write_text('<svg id="symbol"></svg>\n', encoding="utf-8")
+            document.write_text(
+                """# Source Section
+
+[fragment only](#source-section)
+[cross-document](target.MD#target-section)
+[repository root](/target.MD#target-section)
+[encoded Unicode](target.MD#%E6%97%A5%E6%9C%AC%E8%AA%9E%E3%81%AE%E8%A6%8B%E5%87%BA%E3%81%97)
+[custom anchor](target.MD#custom%20anchor)
+[literal percent anchor](target.MD#literal%20anchor)
+[document top](target.MD#TOP)
+[source line](target.MD?plain=1#L2)
+[source line range](target.MD?view=source&plain=%31#L1-L4)
+[browser text fragment](target.MD#:~:text=Target%20Section)
+[SVG fragment](asset.svg#symbol)
+![image fragment](target.MD#not-a-heading)
+<a href="target.MD#target-section">raw HTML link</a>
+<img src="target.MD#not-a-heading" alt="raw HTML image">
+[empty fragment](target.MD#)
+""",
+                encoding="utf-8",
+            )
+
+            assert_local_markdown_links_resolve(
+                self,
+                [document],
+                repository_root,
+            )
+
+            broken_targets = (
+                ("target.MD#tesing", "does not match"),
+                ("#sorce-section", "does not match"),
+                (
+                    "target.MD?plain=1#target-section",
+                    "does not use a GitHub source line fragment",
+                ),
+                ("target.MD?plain=1#L999", "refers outside"),
+                ("target.MD?plain=1#L4-L2", "refers outside"),
+            )
+            for broken_target, error_pattern in broken_targets:
+                with self.subTest(broken_target=broken_target):
+                    document.write_text(
+                        f"# Source Section\n\n[broken]({broken_target})\n",
+                        encoding="utf-8",
+                    )
+                    with self.assertRaisesRegex(AssertionError, error_pattern):
+                        assert_local_markdown_links_resolve(
+                            self,
+                            [document],
+                            repository_root,
+                        )
+
+            document.write_text(
+                '<a href="target.MD#tesing">broken raw HTML link</a>\n',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(AssertionError, "does not match"):
+                assert_local_markdown_links_resolve(
+                    self,
+                    [document],
+                    repository_root,
+                )
+
     def test_local_markdown_links_resolve_inside_the_repository(self):
         documents = repository_markdown_documents(ROOT)
         self.assertTrue(documents)
-
-        for document in documents:
-            text = document.read_text(encoding="utf-8")
-            for target in iter_markdown_link_destinations(text):
-                resolved_path = resolve_markdown_local_path(document, ROOT, target)
-                if resolved_path is None:
-                    continue
-
-                with self.subTest(
-                    document=document.relative_to(ROOT),
-                    target=target,
-                ):
-                    assert_path_is_inside(self, resolved_path, ROOT)
-                    self.assertTrue(resolved_path.exists())
+        assert_local_markdown_links_resolve(self, documents, ROOT)
 
     def test_readmes_and_workflow_use_the_same_test_command(self):
         for path in (
@@ -1048,6 +1353,19 @@ Inline <A HREF=docs/inline.html>link</A> and
         self.assertIn("uses: actions/setup-python@v6", workflow)
         self.assertIn('python-version: "3.13"', workflow)
         self.assertIn(TEST_DEPENDENCY_COMMAND, workflow)
+
+    def test_workflow_avoids_duplicate_pull_request_branch_runs(self):
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            """on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+""",
+            workflow,
+        )
 
     def test_test_dependencies_are_pinned(self):
         self.assertEqual(
