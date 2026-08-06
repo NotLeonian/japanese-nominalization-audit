@@ -1,0 +1,31 @@
+{
+	"name": "japanese-nominalization-audit",
+	"version": "0.1.0",
+	"description": "Audit Japanese technical documentation for ad hoc compound nouns and excessive nominalization.",
+	"author": {
+		"name": "Not_Leonian",
+		"url": "https://github.com/NotLeonian"
+	},
+	"homepage": "https://github.com/NotLeonian/japanese-nominalization-audit#readme",
+	"repository": "https://github.com/NotLeonian/japanese-nominalization-audit",
+	"license": "Apache-2.0",
+	"keywords": [
+		"codex",
+		"japanese",
+		"skill",
+		"technical-writing",
+		"nominalization"
+	],
+	"skills": "./skills/",
+	"interface": {
+		"displayName": "Japanese Nominalization Audit",
+		"shortDescription": "Audit nominalization in Japanese technical documentation.",
+		"longDescription": "Detects and repairs ad hoc compound nouns, compressed noun chains, and excessive nominalization in Japanese technical documentation while preserving established terminology and technical meaning.",
+		"developerName": "Not_Leonian",
+		"category": "Productivity",
+		"capabilities": [],
+		"defaultPrompt": [
+			"Use $japanese-nominalization-audit to review this Japanese technical documentation."
+		]
+	}
+}
