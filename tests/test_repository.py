@@ -4,6 +4,7 @@ import re
 import subprocess
 import tomllib
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import unquote, urlsplit
@@ -207,19 +208,61 @@ def parse_yaml_string(path, line_number, key, value):
 MARKDOWN_PARSER = MarkdownIt("commonmark")
 
 
-def iter_markdown_link_destinations(markdown):
-    for token in MARKDOWN_PARSER.parse(markdown):
-        for child in token.children or ():
-            attribute = {
-                "image": "src",
-                "link_open": "href",
-            }.get(child.type)
-            if attribute is None:
-                continue
+class MarkdownDestinationHTMLParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.destinations: list[str] = []
 
-            destination = child.attrGet(attribute)
-            if isinstance(destination, str):
-                yield destination
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        destination_attribute = {
+            "a": "href",
+            "img": "src",
+        }.get(tag)
+        if destination_attribute is None:
+            return
+
+        for name, value in attrs:
+            if name != destination_attribute:
+                continue
+            if value is not None:
+                self.destinations.append(value)
+            return
+
+
+def iter_markdown_link_destinations(markdown):
+    environment = {}
+    for token in MARKDOWN_PARSER.parse(markdown, environment):
+        if token.type not in {"html_block", "inline"}:
+            continue
+
+        parser = MarkdownDestinationHTMLParser()
+        parser.feed(
+            MARKDOWN_PARSER.renderer.render(
+                [token],
+                MARKDOWN_PARSER.options,
+                environment,
+            )
+        )
+        parser.close()
+        yield from parser.destinations
+
+
+def resolve_markdown_local_path(document, repository_root, target):
+    parsed_target = urlsplit(target)
+    if parsed_target.scheme or parsed_target.netloc:
+        return None
+
+    decoded_path = unquote(parsed_target.path)
+    if not decoded_path:
+        return None
+
+    if decoded_path.startswith("/"):
+        return (repository_root / decoded_path.lstrip("/")).resolve()
+    return (document.parent / decoded_path).resolve()
 
 
 def parse_front_matter(path):
@@ -735,6 +778,39 @@ second")
             ],
         )
 
+    def test_markdown_link_parser_inspects_raw_html_links_and_images(self):
+        markdown = """
+<a href="docs/block.html">block link</a>
+<img src="images/block.png" alt="Block image">
+
+Inline <A HREF=docs/inline.html>link</A> and
+<IMG SRC=images/inline.png ALT="Inline image">.
+
+<!-- <a href="missing-comment.html">comment example</a> -->
+`<img src="missing-code.png">`
+```html
+<a href="missing-fence.html">fenced example</a>
+```
+
+<script><a href="missing-script.html">script example</a></script>
+<style><a href="missing-style.html">style example</a></style>
+<textarea><img src="missing-textarea.png"></textarea>
+
+[Markdown link](docs/markdown.md)
+![Markdown image](images/markdown.png)
+"""
+        self.assertEqual(
+            list(iter_markdown_link_destinations(markdown)),
+            [
+                "docs/block.html",
+                "images/block.png",
+                "docs/inline.html",
+                "images/inline.png",
+                "docs/markdown.md",
+                "images/markdown.png",
+            ],
+        )
+
     def test_markdown_link_parser_ignores_raw_html_literal_blocks(self):
         for tag in ("pre", "script", "style", "textarea"):
             with self.subTest(tag=tag):
@@ -796,6 +872,38 @@ second")
             ["outside.md"],
         )
 
+    def test_local_markdown_paths_use_document_and_repository_roots(self):
+        with TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory).resolve()
+            document = repository_root / "docs" / "guide.md"
+            cases = (
+                ("setup.md", document.parent / "setup.md"),
+                ("../README.md", repository_root / "README.md"),
+                ("/README.md?plain=1#readme", repository_root / "README.md"),
+                ("/", repository_root),
+                (
+                    "/NotLeonian/japanese-nominalization-audit/issues",
+                    repository_root
+                    / "NotLeonian"
+                    / "japanese-nominalization-audit"
+                    / "issues",
+                ),
+                ("#section", None),
+                ("?plain=1", None),
+                ("https://example.com/guide", None),
+                ("//cdn.example.com/guide", None),
+            )
+            for target, expected in cases:
+                with self.subTest(target=target):
+                    self.assertEqual(
+                        resolve_markdown_local_path(
+                            document,
+                            repository_root,
+                            target,
+                        ),
+                        expected,
+                    )
+
     def test_local_markdown_links_resolve_inside_the_repository(self):
         documents = repository_markdown_documents(ROOT)
         self.assertTrue(documents)
@@ -803,15 +911,10 @@ second")
         for document in documents:
             text = document.read_text(encoding="utf-8")
             for target in iter_markdown_link_destinations(text):
-                parsed_target = urlsplit(target)
-                if parsed_target.scheme or target.startswith(("#", "//")):
+                resolved_path = resolve_markdown_local_path(document, ROOT, target)
+                if resolved_path is None:
                     continue
 
-                relative_path = unquote(parsed_target.path)
-                if not relative_path:
-                    continue
-
-                resolved_path = (document.parent / relative_path).resolve()
                 with self.subTest(
                     document=document.relative_to(ROOT),
                     target=target,
