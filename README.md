@@ -145,7 +145,9 @@ phrases and established terms that must remain unchanged.
 
 ## Testing
 
-Run the repository test suite without installing additional packages:
+Run the repository test suite from the root of a Git working tree. The suite
+uses the Python standard library and Git; it does not require third-party
+Python packages:
 
 ```console
 python -B -m unittest discover -s tests -p 'test_*.py' -v
@@ -154,10 +156,11 @@ python -B -m unittest discover -s tests -p 'test_*.py' -v
 The tests validate the JSON files, cross-check the plugin and marketplace
 metadata, verify skill discovery and the core
 `japanese-nominalization-audit` instructions, verify the Python check
-configuration, and check local links in the Markdown documentation. They
-validate the repository structure and static instruction contract; they do
-not simulate an agent, determine whether Japanese terminology is established,
-or prove that an agent will follow the skill.
+configuration, and check local links in tracked Markdown and non-ignored
+untracked Markdown throughout the working tree. They validate the repository
+structure and static instruction contract; they do not simulate an agent,
+determine whether Japanese terminology is established, or prove that an agent
+will follow the skill.
 
 For pushes and pull requests, the GitHub Actions workflow runs the same test
 suite on Windows, macOS, and Ubuntu with Python 3.13.

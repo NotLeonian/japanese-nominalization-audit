@@ -56,7 +56,9 @@ from an incompatible source.
 
 ## Testing Changes
 
-Run the dependency-free repository tests locally:
+Run the repository tests from the root of a Git working tree. The suite uses
+the Python standard library and Git; it does not require third-party Python
+packages:
 
 ```console
 python -B -m unittest discover -s tests -p 'test_*.py' -v
@@ -65,8 +67,9 @@ python -B -m unittest discover -s tests -p 'test_*.py' -v
 For pushes and pull requests, GitHub Actions runs the same suite on Windows,
 macOS, and Ubuntu with Python 3.13. The suite validates the manifests, their
 cross-file metadata, skill discovery, the core instruction contract, the
-Python check configuration, and local documentation links. It does not replace
-the behavioral checks below.
+Python check configuration, and local documentation links. The link inventory
+includes tracked Markdown and non-ignored untracked Markdown throughout the
+working tree. The suite does not replace the behavioral checks below.
 
 When Ruff, mypy, and Pyright are available, run the Python checks from the
 repository root:

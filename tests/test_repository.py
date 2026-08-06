@@ -1,5 +1,8 @@
+import html
 import json
+import os
 import re
+import subprocess
 import tomllib
 import unittest
 from pathlib import Path
@@ -19,7 +22,6 @@ PYTHON_CHECK_COMMANDS = (
     "pyright --project tests/pyproject.toml tests/test_repository.py",
 )
 SUPPORTED_CI_RUNNERS = ("windows-latest", "macos-latest", "ubuntu-latest")
-REPOSITORY_DOCUMENT_PATTERNS = ("*.md", "skills/**/*.md")
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 SEMVER_PATTERN = re.compile(
@@ -30,18 +32,22 @@ SEMVER_PATTERN = re.compile(
     r"(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\Z"
 )
-MARKDOWN_LINK_PATTERN = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+MARKDOWN_ESCAPED_PUNCTUATION_PATTERN = re.compile(
+    r"\\([!\"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~])"
+)
 SKILL_VERSION_PATTERN = re.compile(r'^metadata:\n  version: "([^"]+)"$', re.MULTILINE)
 JAPANESE_CHARACTER_PATTERN = re.compile(r"[ぁ-んァ-ヶ一-龠々]")
 HIRAGANA_PATTERN = re.compile(r"[ぁ-ん]")
 YAML_NON_STRING_SCALARS = {
     "~",
     "false",
+    "n",
     "no",
     "null",
     "off",
     "on",
     "true",
+    "y",
     "yes",
 }
 
@@ -74,23 +80,405 @@ def iter_string_values(value):
 
 
 def repository_markdown_documents(root):
-    return sorted(
-        {
-            path
-            for pattern in REPOSITORY_DOCUMENT_PATTERNS
-            for path in root.glob(pattern)
-            if path.is_file()
-        }
+    git_environment = {
+        **os.environ,
+        "GIT_NO_LAZY_FETCH": "1",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "GIT_PAGER": "cat",
+    }
+    git_command = ("git", "-c", "core.fsmonitor=")
+    repository_root_result = subprocess.run(
+        (*git_command, "rev-parse", "--show-toplevel"),
+        cwd=root,
+        check=True,
+        stdout=subprocess.PIPE,
+        env=git_environment,
     )
+    resolved_root = root.resolve()
+    repository_root = Path(
+        os.fsdecode(repository_root_result.stdout.rstrip(b"\r\n"))
+    ).resolve()
+    if repository_root != resolved_root:
+        raise ValueError(f"{root} must be the root of a Git working tree")
+
+    inventory_result = subprocess.run(
+        (
+            *git_command,
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ),
+        cwd=root,
+        check=True,
+        stdout=subprocess.PIPE,
+        env=git_environment,
+    )
+    documents = set()
+    for encoded_path in inventory_result.stdout.split(b"\0"):
+        if not encoded_path:
+            continue
+
+        relative_path = Path(os.fsdecode(encoded_path))
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise ValueError(f"Git returned an unsafe repository path: {relative_path}")
+        if relative_path.suffix != ".md":
+            continue
+
+        document = root / relative_path
+        if not document.is_file():
+            continue
+        try:
+            document.resolve().relative_to(resolved_root)
+        except ValueError as error:
+            raise ValueError(f"{document} resolves outside {root}") from error
+        documents.add(document)
+
+    return sorted(documents)
+
+
+def yaml_scalar_error(path, line_number, key):
+    return ValueError(f"{path}:{line_number} must use a supported string for {key!r}")
+
+
+def yaml_scalar_tail_is_supported(tail):
+    return not tail or not tail.strip(" \t") or re.fullmatch(r"[ \t]+#.*", tail)
+
+
+def parse_single_quoted_yaml_string(path, line_number, key, value):
+    result = []
+    index = 1
+    while index < len(value):
+        character = value[index]
+        if character != "'":
+            result.append(character)
+            index += 1
+            continue
+
+        if index + 1 < len(value) and value[index + 1] == "'":
+            result.append("'")
+            index += 2
+            continue
+
+        if not yaml_scalar_tail_is_supported(value[index + 1 :]):
+            raise yaml_scalar_error(path, line_number, key)
+        return "".join(result)
+
+    raise yaml_scalar_error(path, line_number, key)
 
 
 def parse_yaml_string(path, line_number, key, value):
-    quoted = len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'"
-    if quoted:
-        return value[1:-1]
-    if not value or value.casefold() in YAML_NON_STRING_SCALARS:
-        raise ValueError(f"{path}:{line_number} must use a string value for {key!r}")
-    return value
+    if value.startswith('"'):
+        try:
+            parsed_value, end = json.JSONDecoder().raw_decode(value)
+        except json.JSONDecodeError as error:
+            raise yaml_scalar_error(path, line_number, key) from error
+        if not isinstance(parsed_value, str) or not yaml_scalar_tail_is_supported(
+            value[end:]
+        ):
+            raise yaml_scalar_error(path, line_number, key)
+        return parsed_value
+
+    if value.startswith("'"):
+        return parse_single_quoted_yaml_string(path, line_number, key, value)
+
+    comment_start = next(
+        (
+            index
+            for index, character in enumerate(value)
+            if character == "#" and index > 0 and value[index - 1].isspace()
+        ),
+        len(value),
+    )
+    parsed_value = value[:comment_start].rstrip()
+    if (
+        not parsed_value
+        or not (parsed_value[0].isalpha() or parsed_value[0] == "_")
+        or parsed_value.casefold() in YAML_NON_STRING_SCALARS
+        or re.search(r":(?:\s|$)", parsed_value)
+    ):
+        raise yaml_scalar_error(path, line_number, key)
+    return parsed_value
+
+
+def markdown_leading_indentation(line):
+    width = 0
+    index = 0
+    while index < len(line) and line[index] in " \t":
+        if line[index] == "\t":
+            width += 4 - (width % 4)
+        else:
+            width += 1
+        index += 1
+    return width, index
+
+
+def mask_markdown_code(markdown):
+    characters = list(markdown)
+    fence_character = None
+    fence_length = 0
+    in_indented_code = False
+    may_start_indented_code = True
+    offset = 0
+
+    for line in markdown.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        is_blank = not content.strip(" \t")
+        indentation, content_start = markdown_leading_indentation(content)
+        stripped = content[content_start:]
+        marker_length = 0
+        if indentation <= 3 and stripped and stripped[0] in "`~":
+            marker_length = len(stripped) - len(stripped.lstrip(stripped[0]))
+
+        is_fence = marker_length >= 3
+        if fence_character is not None:
+            characters[offset : offset + len(content)] = " " * len(content)
+            if (
+                is_fence
+                and stripped[0] == fence_character
+                and marker_length >= fence_length
+                and not stripped[marker_length:].strip(" \t")
+            ):
+                fence_character = None
+                fence_length = 0
+                may_start_indented_code = True
+        else:
+            if in_indented_code and not is_blank and indentation < 4:
+                in_indented_code = False
+
+            if in_indented_code or (
+                not is_blank and indentation >= 4 and may_start_indented_code
+            ):
+                in_indented_code = True
+                characters[offset : offset + len(content)] = " " * len(content)
+            elif is_fence and not (
+                stripped[0] == "`" and "`" in stripped[marker_length:]
+            ):
+                fence_character = stripped[0]
+                fence_length = marker_length
+                characters[offset : offset + len(content)] = " " * len(content)
+            else:
+                may_start_indented_code = is_blank
+
+        offset += len(line)
+
+    masked = "".join(characters)
+    characters = list(masked)
+    index = 0
+    while index < len(masked):
+        if masked[index] != "`" or markdown_character_is_escaped(masked, index):
+            index += 1
+            continue
+
+        delimiter_length = len(masked[index:]) - len(masked[index:].lstrip("`"))
+        search_index = index + delimiter_length
+        closing_index = None
+        while search_index < len(masked):
+            next_backtick = masked.find("`", search_index)
+            if next_backtick < 0:
+                break
+            run_length = len(masked[next_backtick:]) - len(
+                masked[next_backtick:].lstrip("`")
+            )
+            if run_length == delimiter_length:
+                closing_index = next_backtick
+                break
+            search_index = next_backtick + run_length
+
+        if closing_index is None:
+            index += delimiter_length
+            continue
+
+        end = closing_index + delimiter_length
+        for character_index in range(index, end):
+            if characters[character_index] not in "\r\n":
+                characters[character_index] = " "
+        index = end
+
+    return "".join(characters)
+
+
+def mask_markdown_html_comments(markdown):
+    characters = list(markdown)
+    index = 0
+    while index < len(markdown):
+        opening_index = markdown.find("<!--", index)
+        if opening_index < 0:
+            break
+        closing_index = markdown.find("-->", opening_index + 4)
+        end = len(markdown) if closing_index < 0 else closing_index + 3
+        for character_index in range(opening_index, end):
+            if characters[character_index] not in "\r\n":
+                characters[character_index] = " "
+        index = end
+    return "".join(characters)
+
+
+def markdown_character_is_escaped(markdown, index):
+    backslashes = 0
+    index -= 1
+    while index >= 0 and markdown[index] == "\\":
+        backslashes += 1
+        index -= 1
+    return backslashes % 2 == 1
+
+
+def skip_markdown_whitespace(markdown, index):
+    line_endings = 0
+    while index < len(markdown):
+        if markdown[index] in " \t":
+            index += 1
+            continue
+        if markdown[index] == "\r":
+            index += 1
+            if index < len(markdown) and markdown[index] == "\n":
+                index += 1
+        elif markdown[index] == "\n":
+            index += 1
+        else:
+            break
+        line_endings += 1
+        if line_endings > 1:
+            return None
+    return index
+
+
+def find_markdown_title_end(markdown, index):
+    closing_character = {"\"": "\"", "'": "'", "(": ")"}.get(markdown[index])
+    if closing_character is None:
+        return None
+
+    index += 1
+    title_start = index
+    while index < len(markdown):
+        if markdown[index] == "\\" and index + 1 < len(markdown):
+            index += 2
+            continue
+        if markdown[index] == closing_character:
+            if re.search(
+                r"(?:\r\n?|\n)[ \t]*(?:\r\n?|\n)",
+                markdown[title_start:index],
+            ):
+                return None
+            return index + 1
+        index += 1
+    return None
+
+
+def parse_markdown_link_destination(markdown, opening_parenthesis):
+    index = skip_markdown_whitespace(markdown, opening_parenthesis + 1)
+    if index is None:
+        return None
+    destination_start = index
+
+    if index < len(markdown) and markdown[index] == "<":
+        index += 1
+        destination_start = index
+        while index < len(markdown):
+            if markdown[index] == "\\" and index + 1 < len(markdown):
+                index += 2
+                continue
+            if markdown[index] == ">":
+                destination = markdown[destination_start:index]
+                index += 1
+                break
+            if markdown[index] in "<\r\n":
+                return None
+            index += 1
+        else:
+            return None
+    else:
+        depth = 0
+        while index < len(markdown):
+            character = markdown[index]
+            if character == "\\" and index + 1 < len(markdown):
+                index += 2
+                continue
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                if depth == 0:
+                    destination = markdown[destination_start:index]
+                    return destination, index + 1
+                depth -= 1
+            elif character in " \t\r\n":
+                if depth:
+                    return None
+                break
+            elif character == "<":
+                return None
+            index += 1
+        else:
+            return None
+
+        if depth:
+            return None
+        destination = markdown[destination_start:index]
+
+    index = skip_markdown_whitespace(markdown, index)
+    if index is None:
+        return None
+    if index < len(markdown) and markdown[index] == ")":
+        return destination, index + 1
+    if index >= len(markdown):
+        return None
+
+    title_end = find_markdown_title_end(markdown, index)
+    if title_end is None:
+        return None
+    index = skip_markdown_whitespace(markdown, title_end)
+    if index is None:
+        return None
+    if index >= len(markdown) or markdown[index] != ")":
+        return None
+    return destination, index + 1
+
+
+def normalize_markdown_destination(destination):
+    unescaped = MARKDOWN_ESCAPED_PUNCTUATION_PATTERN.sub(r"\1", destination)
+    return html.unescape(unescaped)
+
+
+def iter_markdown_link_destinations(markdown):
+    markdown = mask_markdown_html_comments(mask_markdown_code(markdown))
+    label_stack = []
+    index = 0
+    while index < len(markdown):
+        if markdown_character_is_escaped(markdown, index):
+            index += 1
+            continue
+
+        if markdown[index] == "[":
+            is_image = (
+                index > 0
+                and markdown[index - 1] == "!"
+                and not markdown_character_is_escaped(markdown, index - 1)
+            )
+            label_stack.append([index, False, is_image])
+            index += 1
+            continue
+
+        if markdown[index] != "]" or not label_stack:
+            index += 1
+            continue
+
+        _, contains_link, is_image = label_stack.pop()
+        if contains_link or index + 1 >= len(markdown) or markdown[index + 1] != "(":
+            index += 1
+            continue
+
+        parsed_link = parse_markdown_link_destination(markdown, index + 1)
+        if parsed_link is None:
+            index += 1
+            continue
+
+        destination, index = parsed_link
+        yield normalize_markdown_destination(destination)
+        if not is_image:
+            for label in label_stack:
+                if not label[2]:
+                    label[1] = True
 
 
 def parse_front_matter(path):
@@ -391,6 +779,45 @@ class SkillTests(unittest.TestCase):
             self.fail("skill metadata must contain a quoted version")
         self.assertIsNotNone(SEMVER_PATTERN.fullmatch(version_match.group(1)))
 
+    def test_yaml_string_subset_accepts_supported_scalar_syntax(self):
+        cases = {
+            r'"quoted \"value\""': 'quoted "value"',
+            '"1.2.0" # version': "1.2.0",
+            "'It''s valid'": "It's valid",
+            "English prose # explanation": "English prose",
+            "C# remains plain text": "C# remains plain text",
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(
+                    parse_yaml_string(Path("SKILL.md"), 2, "description", value),
+                    expected,
+                )
+
+    def test_yaml_string_subset_rejects_unsupported_scalar_syntax(self):
+        values = (
+            '"unfinished',
+            "'unfinished",
+            '"finished" trailing',
+            "'finished' trailing",
+            r'"bad \q"',
+            "42",
+            "2026-08-06",
+            "true",
+            "null",
+            "[one]",
+            "{key: value}",
+            "|",
+            ">",
+            "&anchor value",
+            "*anchor",
+            "!tag value",
+            "text: nested",
+        )
+        for value in values:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                parse_yaml_string(Path("SKILL.md"), 2, "description", value)
+
     def test_skill_preserves_the_nominalization_audit_contract(self):
         _, body = parse_front_matter(self.skill_files[0])
         normalized_body = " ".join(body.split())
@@ -455,11 +882,23 @@ class SkillTests(unittest.TestCase):
 
 
 class DocumentationTests(unittest.TestCase):
-    def test_document_inventory_excludes_environment_markdown(self):
+    def test_document_inventory_uses_git_ignored_boundaries(self):
         with TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
+            subprocess.run(
+                ("git", "init", "--quiet"),
+                cwd=root,
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            (root / ".gitignore").write_text(
+                ".venv/\nvenv/\nenv/\n.tox/\n",
+                encoding="utf-8",
+            )
             repository_documents = (
                 root / "README.md",
+                root / ".github" / "PULL_REQUEST_TEMPLATE.md",
+                root / "docs" / "setup" / "guide.md",
                 root / "skills" / "example" / "SKILL.md",
             )
             environment_documents = (
@@ -477,19 +916,68 @@ class DocumentationTests(unittest.TestCase):
                 sorted(repository_documents),
             )
 
+    def test_markdown_link_parser_handles_destinations_and_literal_code(self):
+        markdown = r"""
+[nested](docs/setup(legacy).md)
+[title](docs/setup(legacy).md "Legacy setup")
+[angle](<docs/setup (legacy).md> 'Legacy setup')
+[escaped](docs/setup\(legacy\).md)
+![image](images/diagram(legacy).png)
+`[inline code](missing-inline.md)`
+``[longer code span](missing-longer.md)``
+\[escaped label](missing-escaped.md)
+```text
+[fenced](missing-fenced.md)
+```
+~~~
+[tilde fenced](missing-tilde.md)
+~~~
+````
+```
+[inside long fence](missing-long-fence.md)
+```
+````
+` unmatched [real](ok.md)
+
+    [indented code](missing-indented.md)
+\t[tab-indented code](missing-tab.md)
+
+paragraph
+    [paragraph continuation](continuation.md)
+<!-- [comment](missing-comment.md) -->
+[outer [inner](inner.md)](missing-outer.md)
+[not a link](
+
+missing-blank-line.md)
+[multiline title](docs/multiline.md "first
+second")
+"""
+        markdown = markdown.replace(
+            r"\t[tab-indented code]",
+            "\t[tab-indented code]",
+        )
+        self.assertEqual(
+            list(iter_markdown_link_destinations(markdown)),
+            [
+                "docs/setup(legacy).md",
+                "docs/setup(legacy).md",
+                "docs/setup (legacy).md",
+                "docs/setup(legacy).md",
+                "images/diagram(legacy).png",
+                "ok.md",
+                "continuation.md",
+                "inner.md",
+                "docs/multiline.md",
+            ],
+        )
+
     def test_local_markdown_links_resolve_inside_the_repository(self):
         documents = repository_markdown_documents(ROOT)
         self.assertTrue(documents)
 
         for document in documents:
             text = document.read_text(encoding="utf-8")
-            for match in MARKDOWN_LINK_PATTERN.finditer(text):
-                raw_target = match.group(1).strip()
-                if raw_target.startswith("<") and ">" in raw_target:
-                    target = raw_target[1 : raw_target.index(">")]
-                else:
-                    target = raw_target.split(maxsplit=1)[0]
-
+            for target in iter_markdown_link_destinations(text):
                 parsed_target = urlsplit(target)
                 if parsed_target.scheme or target.startswith(("#", "//")):
                     continue
