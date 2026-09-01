@@ -126,14 +126,14 @@ Never resolve nominalization by deleting technical information.
 
 ## Independently authored examples
 
-| Avoid | Prefer | Why |
-| --- | --- | --- |
-| `認証情報残存性が再認証失敗の原因です。` | `保存済みの認証情報が残っているため、再認証に失敗します。` | Restores the state and the causal relation. |
-| `通知重複送信防止化を実施します。` | `同じ通知を重複して送らないようにします。` | Replaces an invented action noun with the action itself. |
-| `設定読込未完了状態が起動時例外を引き起こします。` | `設定を読み終える前に処理を開始すると、起動時に例外が発生します。` | Makes the timing condition explicit. |
-| `監査ログ保存期間変更影響確認` | `監査ログの保存期間を変更したときの影響を確認する` | Clarifies the action and when the impact arises. |
-| `依存サービス応答遅延対応方針` | `依存先のサービスからの応答が遅い場合の対応方針` | States the condition instead of leaving the relationship implicit. |
-| `入力検証未実施が不正値登録の要因です。` | `入力値を検証していないため、不正な値が登録されます。` | Restores the omitted action and result. |
+| Avoid                                              | Prefer                                                             | Why                                                                |
+| -------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `認証情報残存性が再認証失敗の原因です。`           | `保存済みの認証情報が残っているため、再認証に失敗します。`         | Restores the state and the causal relation.                        |
+| `通知重複送信防止化を実施します。`                 | `同じ通知を重複して送らないようにします。`                         | Replaces an invented action noun with the action itself.           |
+| `設定読込未完了状態が起動時例外を引き起こします。` | `設定を読み終える前に処理を開始すると、起動時に例外が発生します。` | Makes the timing condition explicit.                               |
+| `監査ログ保存期間変更影響確認`                     | `監査ログの保存期間を変更したときの影響を確認する`                 | Clarifies the action and when the impact arises.                   |
+| `依存サービス応答遅延対応方針`                     | `依存先のサービスからの応答が遅い場合の対応方針`                   | States the condition instead of leaving the relationship implicit. |
+| `入力検証未実施が不正値登録の要因です。`           | `入力値を検証していないため、不正な値が登録されます。`             | Restores the omitted action and result.                            |
 
 Compact wording remains appropriate for established terms:
 
