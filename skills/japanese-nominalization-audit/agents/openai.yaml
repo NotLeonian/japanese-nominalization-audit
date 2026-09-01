@@ -1,0 +1,6 @@
+interface:
+  display_name: "Japanese Nominalization Audit"
+  short_description: "Audit nominalization in Japanese technical documentation."
+
+policy:
+  allow_implicit_invocation: false
