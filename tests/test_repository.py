@@ -19,6 +19,9 @@ MARKETPLACE_PATH = ROOT / ".agents" / "plugins" / "marketplace.json"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 PYPROJECT_PATH = ROOT / "tests" / "pyproject.toml"
 REQUIREMENTS_PATH = ROOT / "tests" / "requirements.txt"
+SKILL_AGENT_CONFIG_PATH = (
+    ROOT / "skills" / "japanese-nominalization-audit" / "agents" / "openai.yaml"
+)
 TEST_COMMAND = "python -B -m unittest discover -s tests -p 'test_*.py' -v"
 TEST_DEPENDENCY_COMMAND = (
     "python -m pip install --disable-pip-version-check -r tests/requirements.txt"
@@ -531,6 +534,7 @@ class RepositoryStructureTests(unittest.TestCase):
             "README.md",
             "SECURITY.md",
             "skills/japanese-nominalization-audit/SKILL.md",
+            "skills/japanese-nominalization-audit/agents/openai.yaml",
             "tests/pyproject.toml",
             "tests/requirements.txt",
             "tests/test_repository.py",
@@ -754,6 +758,7 @@ class SkillTests(unittest.TestCase):
         self.assertNotRegex(fields["description"], r"[<>]")
         self.assertTrue(fields["compatibility"].strip())
         self.assertEqual(set(fields["metadata"]), {"version"})
+        self.assertEqual(fields["metadata"]["version"], "1.3.0")
         self.assertIsNotNone(SEMVER_PATTERN.fullmatch(fields["metadata"]["version"]))
         self.assertTrue(body)
 
@@ -763,6 +768,39 @@ class SkillTests(unittest.TestCase):
         if version_match is None:
             self.fail("skill metadata must contain a quoted version")
         self.assertIsNotNone(SEMVER_PATTERN.fullmatch(version_match.group(1)))
+
+    def test_skill_requires_explicit_invocation(self):
+        self.assertEqual(
+            SKILL_AGENT_CONFIG_PATH.read_text(encoding="utf-8"),
+            (
+                'interface:\n  display_name: "Japanese Nominalization Audit"\n'
+                "  short_description: \"Audit nominalization in Japanese technical "
+                'documentation."\n\npolicy:\n  allow_implicit_invocation: false\n'
+            ),
+        )
+
+        fields, body = parse_front_matter(self.skill_files[0])
+        normalized_description = " ".join(fields["description"].split())
+        normalized_body = " ".join(body.split())
+        self.assertIn(
+            "Use only when the user explicitly requests this skill",
+            normalized_description,
+        )
+        required_statements = (
+            (
+                "Apply this audit only when the user explicitly invokes "
+                "`$japanese-nominalization-audit` or directly asks for an audit "
+                "using this skill."
+            ),
+            (
+                "Merely mentioning, discussing, maintaining, installing, or "
+                "configuring the skill is not an audit request."
+            ),
+            "Without an explicit request, do not inspect or modify prose under this skill.",
+        )
+        for statement in required_statements:
+            with self.subTest(statement=statement):
+                self.assertIn(statement, normalized_body)
 
     def test_yaml_string_subset_accepts_supported_scalar_syntax(self):
         cases = {

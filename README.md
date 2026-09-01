@@ -6,6 +6,10 @@
 for reviewing nominalization and compressed noun expressions in Japanese
 technical documentation.
 
+The skill remains inactive unless the user explicitly requests it. Drafting or
+editing Japanese prose, or merely mentioning, discussing, maintaining,
+installing, or configuring the skill, does not start an audit.
+
 When the skill is active, it directs the agent to preserve events, states,
 conditions, and causal relations as clauses instead of hiding them inside ad
 hoc compound nouns.
@@ -52,12 +56,12 @@ codex plugin add japanese-nominalization-audit@japanese-nominalization-audit
 
 Start a new Codex thread after installation so that the skill is loaded.
 
-To install only the skill, copy its `SKILL.md` into the local Agent Skills
-directory:
+To install only the skill, copy the complete skill directory so that its
+explicit-invocation policy is included:
 
 ```console
-mkdir -p "$HOME/.agents/skills/japanese-nominalization-audit"
-cp /absolute/path/to/japanese-nominalization-audit/skills/japanese-nominalization-audit/SKILL.md "$HOME/.agents/skills/japanese-nominalization-audit/SKILL.md"
+mkdir -p "$HOME/.agents/skills"
+cp -R /absolute/path/to/japanese-nominalization-audit/skills/japanese-nominalization-audit "$HOME/.agents/skills/"
 ```
 
 ## Usage
@@ -70,9 +74,10 @@ $japanese-nominalization-audit
 Review the relevant Japanese documentation and repair unclear nominalization.
 ```
 
-A compatible host may also select the skill automatically for Japanese
+The skill must not be selected automatically. A task involving Japanese
 READMEs, specifications, ADRs, design documents, operational guides, release
-notes, and explanatory comments when the task calls for this focused review.
+notes, or explanatory comments does not authorize this audit by itself; the
+user must request the skill explicitly.
 
 The audit is not limited to the current diff. Unless the user sets a narrower
 boundary, it also covers relevant neighboring documents, shared terminology,
@@ -200,6 +205,8 @@ japanese-nominalization-audit/
 │   └── plugin.json
 ├── skills/
 │   └── japanese-nominalization-audit/
+│       ├── agents/
+│       │   └── openai.yaml
 │       └── SKILL.md
 ├── tests/
 │   ├── pyproject.toml

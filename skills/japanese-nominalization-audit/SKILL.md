@@ -1,12 +1,20 @@
 ---
 name: japanese-nominalization-audit
-description: Detect and repair ad hoc compound nouns, compressed noun chains, and excessive nominalization in Japanese technical documentation. Use while drafting or editing Japanese READMEs, specifications, ADRs, design documents, operational guides, release notes, and explanatory comments. Review both the current changes and relevant pre-existing documentation. Keep the review narrowly focused on nominalization problems; this is not a general Japanese style guide and has no dependency on another writing skill.
+description: Detect and repair ad hoc compound nouns, compressed noun chains, and excessive nominalization in Japanese technical documentation. Use only when the user explicitly requests this skill; never infer invocation from an ordinary drafting or editing task, a potential finding, or a mention of the skill. When invoked, review both current changes and relevant pre-existing documentation. Keep the review narrowly focused on nominalization problems; this is not a general Japanese style guide and has no dependency on another writing skill.
 compatibility: Intended for ChatGPT, Codex, and other Agent Skills-compatible agents. Repository search and exact-phrase usage checks are recommended when available.
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Japanese Nominalization Audit
+
+## Invocation requirement
+
+Apply this audit only when the user explicitly invokes `$japanese-nominalization-audit` or directly asks for an audit using this skill.
+
+Do not infer authorization from drafting or editing Japanese prose, noticing a potential nominalization problem, or deciding that the audit would be useful. Merely mentioning, discussing, maintaining, installing, or configuring the skill is not an audit request. Without an explicit request, do not inspect or modify prose under this skill.
+
+Once the user explicitly requests the audit, follow the scope below, including the review of relevant pre-existing documentation unless the user sets a narrower boundary.
 
 ## Objective
 
@@ -136,7 +144,7 @@ Compact wording remains appropriate for established terms:
 
 A familiar phrase can still be unclear in a particular sentence. Judge the complete expression in context, not only the individual words.
 
-## Mandatory audit of pre-existing documentation
+## Mandatory audit after explicit invocation
 
 Do not review only the text added by the current change. Whenever repository contents are available, inspect relevant existing Japanese documentation for the same class of problem and correct clear findings within the permitted scope.
 

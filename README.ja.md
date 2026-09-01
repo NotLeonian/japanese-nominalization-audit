@@ -4,6 +4,9 @@
 
 `japanese-nominalization-audit` は、日本語の技術文書に含まれる過度な名詞化や、関係が分かりにくい名詞の連なりを調べるための Agent Skill を収録した Codex プラグインです。
 
+このスキルは、ユーザーが明示的に要求した場合にのみ有効になります。
+日本語の文章を作成または編集していることや、このスキルについて言及、説明、保守、インストール、設定していることだけでは、監査を開始しません。
+
 このスキルを有効にすると、出来事、状態、条件、因果関係などを即席の複合名詞へ押し込まず、必要に応じて節として書くようエージェントに指示します。
 
 ## このスキルが行うこと
@@ -37,11 +40,11 @@ codex plugin add japanese-nominalization-audit@japanese-nominalization-audit
 
 インストールした後は、新しい Codex スレッドを開始してスキルを読み込んでください。
 
-スキルだけを使う場合は、`SKILL.md` をローカルの Agent Skills ディレクトリへコピーします。
+スキルだけを使う場合は、明示的な呼び出しを要求するポリシーも含まれるように、スキルのディレクトリ全体をローカルの Agent Skills ディレクトリへコピーします。
 
 ```console
-mkdir -p "$HOME/.agents/skills/japanese-nominalization-audit"
-cp /absolute/path/to/japanese-nominalization-audit/skills/japanese-nominalization-audit/SKILL.md "$HOME/.agents/skills/japanese-nominalization-audit/SKILL.md"
+mkdir -p "$HOME/.agents/skills"
+cp -R /absolute/path/to/japanese-nominalization-audit/skills/japanese-nominalization-audit "$HOME/.agents/skills/"
 ```
 
 ## 使い方
@@ -54,7 +57,9 @@ $japanese-nominalization-audit
 関係する日本語の文書を確認し、分かりにくい名詞化を修正してください。
 ```
 
-互換性のあるホストでは、README、仕様書、ADR、設計文書、運用手順、リリースノート、説明のためのコメントなどを対象として、このスキルが自動的に選ばれる場合もあります。
+このスキルは自動的には選択されません。
+README、仕様書、ADR、設計文書、運用手順、リリースノート、説明のためのコメントなどを作成または編集する作業であっても、それだけでは監査を行いません。
+ユーザーがこのスキルによる監査を明示的に依頼する必要があります。
 
 監査の対象は、現在の差分だけではありません。
 ユーザーが範囲を狭く指定しない限り、変更した文書に隣接する文書、共通して使う用語、テンプレート、用語集、今回の変更が影響する中心的な文書も確認します。
@@ -161,6 +166,8 @@ japanese-nominalization-audit/
 │   └── plugin.json
 ├── skills/
 │   └── japanese-nominalization-audit/
+│       ├── agents/
+│       │   └── openai.yaml
 │       └── SKILL.md
 ├── tests/
 │   ├── pyproject.toml
