@@ -758,7 +758,7 @@ class SkillTests(unittest.TestCase):
         self.assertNotRegex(fields["description"], r"[<>]")
         self.assertTrue(fields["compatibility"].strip())
         self.assertEqual(set(fields["metadata"]), {"version"})
-        self.assertEqual(fields["metadata"]["version"], "1.3.0")
+        self.assertEqual(fields["metadata"]["version"], "1.3.1")
         self.assertIsNotNone(SEMVER_PATTERN.fullmatch(fields["metadata"]["version"]))
         self.assertTrue(body)
 
@@ -783,24 +783,38 @@ class SkillTests(unittest.TestCase):
         normalized_description = " ".join(fields["description"].split())
         normalized_body = " ".join(body.split())
         self.assertIn(
-            "Use only when the user explicitly requests this skill",
+            (
+                "Use only when the user explicitly selects this skill through "
+                "the host's skill invocation mechanism"
+            ),
             normalized_description,
         )
         required_statements = (
             (
-                "Apply this audit only when the user explicitly invokes "
-                "`$japanese-nominalization-audit` or directly asks for an audit "
-                "using this skill."
+                "Apply this audit only when the user explicitly selects this "
+                "skill through the host's skill invocation mechanism."
+            ),
+            ("In Codex, invoke `$japanese-nominalization-audit` in the prompt."),
+            (
+                "A plain-language request to use this skill does not count as "
+                "explicit selection."
             ),
             (
-                "Merely mentioning, discussing, maintaining, installing, or "
-                "configuring the skill is not an audit request."
+                "Merely referring to, discussing, maintaining, installing, or "
+                "configuring the skill does not select it."
             ),
-            "Without an explicit request, do not inspect or modify prose under this skill.",
+            (
+                "Without explicit selection through the host's skill invocation "
+                "mechanism, do not inspect or modify prose under this skill."
+            ),
         )
         for statement in required_statements:
             with self.subTest(statement=statement):
                 self.assertIn(statement, normalized_body)
+        self.assertNotIn(
+            "or directly asks",
+            normalized_body,
+        )
 
     def test_yaml_string_subset_accepts_supported_scalar_syntax(self):
         cases = {

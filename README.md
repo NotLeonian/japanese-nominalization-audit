@@ -6,9 +6,10 @@
 for reviewing nominalization and compressed noun expressions in Japanese
 technical documentation.
 
-The skill remains inactive unless the user explicitly requests it. Drafting or
-editing Japanese prose, or merely mentioning, discussing, maintaining,
-installing, or configuring the skill, does not start an audit.
+The skill remains inactive unless the user explicitly invokes
+`$japanese-nominalization-audit`. Drafting or editing Japanese prose, referring
+to the skill in plain text, or merely discussing, maintaining, installing, or
+configuring it does not start an audit.
 
 When the skill is active, it directs the agent to preserve events, states,
 conditions, and causal relations as clauses instead of hiding them inside ad
@@ -74,10 +75,12 @@ $japanese-nominalization-audit
 Review the relevant Japanese documentation and repair unclear nominalization.
 ```
 
-The skill must not be selected automatically. A task involving Japanese
-READMEs, specifications, ADRs, design documents, operational guides, release
-notes, or explanatory comments does not authorize this audit by itself; the
-user must request the skill explicitly.
+The skill must not be selected automatically. In Codex, include
+`$japanese-nominalization-audit` in the prompt to invoke it. A task involving
+Japanese READMEs, specifications, ADRs, design documents, operational guides,
+release notes, or explanatory comments does not authorize this audit by
+itself. A plain-language request that does not include
+`$japanese-nominalization-audit` is not an explicit invocation.
 
 The audit is not limited to the current diff. Unless the user sets a narrower
 boundary, it also covers relevant neighboring documents, shared terminology,
