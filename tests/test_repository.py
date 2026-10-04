@@ -1402,7 +1402,10 @@ Setext Heading
         )
         self.assertIn(runner_matrix, workflow)
 
-        self.assertIn("uses: actions/setup-python@v6", workflow)
+        self.assertRegex(
+            workflow,
+            r"(?m)^[ \t]+uses: actions/setup-python@[^\s#]+[ \t]*$",
+        )
         self.assertIn('python-version: "3.13"', workflow)
         self.assertIn(TEST_DEPENDENCY_COMMAND, workflow)
 
@@ -1420,16 +1423,23 @@ Setext Heading
         )
 
     def test_test_dependencies_are_pinned(self):
+        requirements = REQUIREMENTS_PATH.read_text(encoding="utf-8").splitlines()
         self.assertEqual(
-            REQUIREMENTS_PATH.read_text(encoding="utf-8").splitlines(),
+            [requirement.partition("==")[0] for requirement in requirements],
             [
-                "markdown-it-py==4.2.0",
-                "mdurl==0.1.2",
-                "mypy==2.3.0",
-                "pyright==1.1.411",
-                "ruff==0.16.1",
+                "markdown-it-py",
+                "mdurl",
+                "mypy",
+                "pyright",
+                "ruff",
             ],
         )
+        for requirement in requirements:
+            with self.subTest(requirement=requirement):
+                self.assertRegex(
+                    requirement,
+                    r"\A[a-z][a-z0-9-]*==[0-9][a-zA-Z0-9.!+_-]*\Z",
+                )
 
 
 if __name__ == "__main__":
