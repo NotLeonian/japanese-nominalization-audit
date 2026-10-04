@@ -1402,7 +1402,10 @@ Setext Heading
         )
         self.assertIn(runner_matrix, workflow)
 
-        self.assertRegex(workflow, r"(?m)^\s*uses: actions/setup-python@\S+\s*$")
+        self.assertRegex(
+            workflow,
+            r"(?m)^[ \t]+uses: actions/setup-python@[^\s#]+[ \t]*$",
+        )
         self.assertIn('python-version: "3.13"', workflow)
         self.assertIn(TEST_DEPENDENCY_COMMAND, workflow)
 
