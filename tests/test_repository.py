@@ -1402,10 +1402,7 @@ Setext Heading
         )
         self.assertIn(runner_matrix, workflow)
 
-        self.assertRegex(
-            workflow,
-            r"(?m)^[ \t]+uses: actions/setup-python@[^\s#]+[ \t]*$",
-        )
+        self.assertRegex(workflow, r"(?m)^\s*uses: actions/setup-python@\S+\s*$")
         self.assertIn('python-version: "3.13"', workflow)
         self.assertIn(TEST_DEPENDENCY_COMMAND, workflow)
 
@@ -1436,7 +1433,10 @@ Setext Heading
         )
         for requirement in requirements:
             with self.subTest(requirement=requirement):
-                self.assertRegex(requirement, r"^[^\s=]+==[^\s=]+\Z")
+                self.assertRegex(
+                    requirement,
+                    r"\A[a-z][a-z0-9-]*==[0-9][a-zA-Z0-9.!+_-]*\Z",
+                )
 
 
 if __name__ == "__main__":
