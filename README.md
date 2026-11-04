@@ -15,12 +15,18 @@ When the skill is active, it directs the agent to preserve events, states,
 conditions, and causal relations as clauses instead of hiding them inside ad
 hoc compound nouns.
 
+The skill supplies points to examine during an audit. The user's instructions
+determine when to audit and which text to examine. Invoking the skill alone
+does not authorize an audit of existing documents.
+
 ## Behavior
 
 The skill directs the agent to:
 
 - inspect newly coined or weakly established compound nouns, excessive
   nominalization, and long noun sequences with unclear internal relations;
+- inspect short expressions mixing Japanese and alphanumeric tokens, even
+  when spaces or inline-code formatting separate the components;
 - distinguish established technical terms and useful project-defined terms
   from context-specific shorthand and accidental coinages;
 - expand unclear nouns into clauses that retain the actor, action, state,
@@ -29,8 +35,8 @@ The skill directs the agent to:
   forces a complete explanation into an invented noun phrase;
 - use project definitions and authoritative field evidence before deciding
   that a term is established;
-- review relevant pre-existing first-party documentation as well as text
-  added or modified by the current task; and
+- review the text the user requested, including pre-existing documentation
+  only when the user instructs it; and
 - report uncertain terms and findings that fall outside the permitted scope.
 
 When a technical term has no established Japanese translation, the skill
@@ -67,12 +73,12 @@ cp -R /absolute/path/to/japanese-nominalization-audit/skills/japanese-nominaliza
 
 ## Usage
 
-Invoke the skill while drafting or editing Japanese technical documentation:
+Invoke the skill and specify when to audit and which text to examine:
 
 ```text
 $japanese-nominalization-audit
 
-Review the relevant Japanese documentation and repair unclear nominalization.
+Review README.ja.md now and repair unclear nominalization in that file.
 ```
 
 The skill must not be selected automatically. In Codex, include
@@ -82,12 +88,16 @@ release notes, or explanatory comments does not authorize this audit by
 itself. A plain-language request that does not include
 `$japanese-nominalization-audit` is not an explicit invocation.
 
-The audit is not limited to the current diff. Unless the user sets a narrower
-boundary, it also covers relevant neighboring documents, shared terminology,
-templates, glossaries, and central documentation affected by the change.
+The user's instructions determine the timing and boundary of the audit. A
+request to review current changes covers only that text. Existing documents,
+neighboring files, templates, and glossaries are not added to the audit
+without the user's instruction. If the timing or targets cannot be determined
+from the request, the agent asks before auditing. A review-only request does
+not authorize edits.
+
 Generated artifacts, vendored material, archived snapshots, and quotations
-are excluded; when generated prose has a problem, edit its source when
-possible.
+are excluded. Any source template or generator correction must also fall
+within the authorized editing scope.
 
 ## Limitations
 
@@ -116,9 +126,8 @@ correctness.
 - It cannot guarantee that every relevant expression has been found, that a
   rewrite is technically correct, or that readers in every field will make
   the same terminology judgment.
-- It may broaden a documentation change to include clear, related findings in
-  pre-existing first-party prose. A user-provided scope limit still controls
-  which files may be edited.
+- It does not decide when to audit or expand the audit boundary on its own.
+  It does not audit existing documents without the user's instruction.
 - A repository-wide audit may be claimed only after all repository-wide
   first-party documentation in scope has actually been examined.
 - It applies only while the host has loaded the skill and the agent follows

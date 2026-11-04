@@ -1,9 +1,9 @@
 ---
 name: japanese-nominalization-audit
-description: Detect and repair ad hoc compound nouns, compressed noun chains, and excessive nominalization in Japanese technical documentation. Use only when the user explicitly selects this skill through the host's skill invocation mechanism; in Codex, invoke `$japanese-nominalization-audit`. Never infer invocation from an ordinary drafting or editing task, a potential finding, or a plain-language request to use the skill. When invoked, review both current changes and relevant pre-existing documentation. Keep the review narrowly focused on nominalization problems; this is not a general Japanese style guide and has no dependency on another writing skill.
+description: Detect and repair ad hoc compound nouns, compressed noun chains, and excessive nominalization in Japanese technical documentation, including unclear mixtures of Japanese and alphanumeric tokens. Use only when the user explicitly selects this skill through the host's skill invocation mechanism; in Codex, invoke `$japanese-nominalization-audit`. Never infer invocation from an ordinary drafting or editing task, a potential finding, or a plain-language request to use the skill. This skill supplies audit criteria; the user's instructions determine when to audit and what to examine. Do not audit existing documents without the user's instruction. Keep the review narrowly focused on nominalization problems; this is not a general Japanese style guide and has no dependency on another writing skill.
 compatibility: Intended for ChatGPT, Codex, and other Agent Skills-compatible agents. Repository search and exact-phrase usage checks are recommended when available.
 metadata:
-  version: "1.3.1"
+  version: "1.4.0"
 ---
 
 # Japanese Nominalization Audit
@@ -14,7 +14,9 @@ Apply this audit only when the user explicitly selects this skill through the ho
 
 Do not infer authorization from drafting or editing Japanese prose, noticing a potential nominalization problem, or deciding that the audit would be useful. A plain-language request to use this skill does not count as explicit selection. Merely referring to, discussing, maintaining, installing, or configuring the skill does not select it. Without explicit selection through the host's skill invocation mechanism, do not inspect or modify prose under this skill.
 
-Once the user explicitly selects the skill, follow the scope below, including the review of relevant pre-existing documentation unless the user sets a narrower boundary.
+This skill summarizes points to examine during an audit. It does not authorize the agent to decide when to audit or how far the audit extends without the user's instructions. Explicit selection makes the criteria available; it does not by itself authorize an audit of existing documents.
+
+Do not audit existing documents without the user's instruction. Follow the user's requested timing, targets, and review or editing scope. If the intended timing or targets cannot be determined from the user's instructions, ask before starting the audit; do not choose documents or expand the scope on your own.
 
 ## Objective
 
@@ -31,6 +33,7 @@ This skill addresses only:
 - newly coined or weakly established compound nouns;
 - nominalization that suppresses an actor, action, state, timing, condition, negation, or causal direction;
 - long noun sequences whose internal relationships are not explicit;
+- short or long compounds that obscure relationships between Japanese words and Latin letters, digits, version strings, or symbols;
 - headings, table labels, and bold lead-ins that force an explanation into an unnatural noun phrase.
 
 Do not perform broad rewriting for tone, politeness, rhythm, punctuation, paragraph order, or vocabulary. Change those features only when required to resolve a problem listed above.
@@ -89,6 +92,17 @@ Candidates include:
 
 Do not insert particles mechanically. First reconstruct the intended proposition, then choose a clause or a shorter, established label.
 
+### Mixed Japanese and alphanumeric compounds
+
+Inspect the whole expression even when Latin letters, digits, spaces, punctuation, or inline-code formatting interrupt the Japanese noun sequence. A candidate need not be long or consist entirely of kanji or katakana. Familiar product names, version numbers, and variable names do not establish the compound built around them.
+
+Examples that should trigger review include:
+
+- `LLVM 20 系`: determine which releases are meant. If the intended set is releases whose major version is 20, write `LLVM のメジャーバージョンが 20 のリリース`. Do not silently broaden the set to version 20 and later or narrow it to one particular release.
+- `可変 y 範囲`: determine what `y` denotes, which range can change, and how it changes. For a graph whose displayed range can be changed, use wording such as `y 軸の表示範囲を変更できる`. Preserve any distinction between manual adjustment and automatic scaling; if the context does not resolve it, report the ambiguity rather than inventing behavior.
+
+Preserve protected tokens such as `LLVM`, `20`, and `y` while clarifying their relationship to the surrounding Japanese. Adding spaces alone does not repair a hidden relationship. Mixed scripts alone are not a defect: retain established expressions such as `UTF-8`, `HTTP/2`, and `x 座標` when used in their conventional senses.
+
 ### Presentation structures that demand a noun
 
 A heading, bold prefix, or two-column table can pressure the writer to compress a full explanation into a short label. Do not preserve that layout when it repeatedly produces invented terms.
@@ -144,51 +158,45 @@ Compact wording remains appropriate for established terms:
 
 A familiar phrase can still be unclear in a particular sentence. Judge the complete expression in context, not only the individual words.
 
-## Mandatory audit after explicit invocation
+## User-directed audit
 
-Do not review only the text added by the current change. Whenever repository contents are available, inspect relevant existing Japanese documentation for the same class of problem and correct clear findings within the permitted scope.
+Apply the criteria when and where the user requests an audit. A request to review current changes does not authorize reviewing unchanged text or other documents. Include existing text only when the user's instructions include it, and correct findings only when edits are requested or otherwise authorized by the task.
 
 ### Establish the audit boundary
 
-Unless the user gives a narrower boundary, include:
+Derive the audit boundary from the user's instructions: for example, a supplied passage, current changes, named files, a specified directory, or explicitly requested repository-wide documentation. Do not automatically include every modified file, neighboring documents, shared templates, glossaries, or documents that reuse the same terms. A project-wide terminology change does not itself authorize a repository-wide audit.
 
-- every document modified by the task;
-- neighboring documents for the same component, feature, or operational procedure;
-- documents that define, link to, or reuse terminology changed by the task;
-- shared templates, glossaries, and central architecture or policy documents affected by the terminology;
-- repository-wide first-party documentation when the change introduces or revises a project-wide term.
+Exclude generated artifacts, third-party vendored material, archived snapshots, and quotations. When generated output contains the problem, edit its source template or generator only if that source is within the authorized editing scope; otherwise report the limitation.
 
-Typical locations include the repository root and directories such as `docs/`, `specs/`, `design/`, `adr/`, `runbooks/`, or equivalent project-specific locations.
-
-Exclude generated artifacts, third-party vendored material, archived snapshots, and quotations. When generated output contains the problem, edit its source template or generator when possible.
-
-If the user prohibits edits outside a specified area, inspect related material when practical but report out-of-scope findings instead of changing it.
+Keep both candidate searches and prose review inside that boundary. Related material may be consulted as terminology evidence when needed for the requested review; that does not authorize auditing or editing it. If a finding encountered within the requested work suggests that the boundary should be expanded, report that limitation without inspecting additional documents for problems on your own.
 
 ### Build a candidate inventory
 
-Use repository search, documentation indexes, and available language tools. Look for:
+Use search, documentation indexes, and available language tools within the user-directed boundary. Look for:
 
 - unusually long kanji or katakana noun runs;
+- short or long mixtures of Japanese and alphanumeric tokens, including expressions separated by spaces or inline-code boundaries;
 - productive suffixes attached to project-specific bases;
 - long subjects ending before generic causal or evaluative predicates;
 - headings and bold labels consisting only of dense noun sequences;
 - repeated expressions introduced by templates or copied between documents.
 
-Example `ripgrep` searches are:
+For a requested file or directory audit, set `audit_path` to that user-selected target and pass only the selected paths. Example `ripgrep` searches are below. For a changes-only review, search the requested diff instead of running these commands on full files.
 
 ```bash
-rg -n --glob '*.md' '(未|非)[[:alnum:]一-龠々ァ-ヶー]{2,}(性|化|度)'
-rg -n --glob '*.md' '[一-龠々ァ-ヶー]{8,}(原因|要因|方針|確認|対応)'
-rg -n --glob '*.md' '^#{1,6}[[:space:]]+[一-龠々ァ-ヶー]{10,}$'
+rg -n --glob '*.md' '(未|非)[[:alnum:]一-龠々ァ-ヶー]{2,}(性|化|度)' "$audit_path"
+rg -n --glob '*.md' '[一-龠々ァ-ヶー]{8,}(原因|要因|方針|確認|対応)' "$audit_path"
+rg -n --glob '*.md' '^#{1,6}[[:space:]]+[一-龠々ァ-ヶー]{10,}$' "$audit_path"
+rg -n --glob '*.md' '[A-Za-z0-9][A-Za-z0-9_.+/-]*[[:blank:]`]*[一-龠々ァ-ヶー]|[一-龠々ァ-ヶー][[:blank:]`]*[A-Za-z0-9]' "$audit_path"
 ```
 
-These commands only collect candidates. Do not classify or replace text solely from a regular-expression match. Read the surrounding paragraph and determine the intended meaning.
+These commands only collect candidates and are not exhaustive. Do not classify or replace text solely from a regular-expression match, or dismiss an expression because it does not match. Read the surrounding paragraph within the requested scope and determine the intended meaning.
 
 ### Correct old and new findings consistently
 
-Fix a clear violation even when it predates the current change, provided it falls inside the audit boundary. Do not preserve an obvious problem merely because the current author did not introduce it.
+When corrections are authorized, fix clear findings within the user-directed boundary, including pre-existing text only if the user included it. For a review-only request, report findings and suggested rewrites without editing.
 
-Before applying the same rewrite to repeated text, verify that every occurrence has the same meaning. Update definitions, links, and cross-references when the wording change would otherwise make related documents inconsistent.
+Before applying the same rewrite to repeated text within the boundary, verify that every occurrence has the same meaning. Update definitions, links, and cross-references within the authorized editing scope; report any further consistency work that would require expanding it.
 
 Keep the cleanup restricted to nominalization and noun-chain problems. Do not turn the audit into a general prose rewrite.
 
@@ -220,10 +228,10 @@ When protected material appears in prose, retain the protected token and rewrite
 
 A task using this skill is complete only when:
 
-- newly written and modified Japanese prose has been reviewed;
-- relevant pre-existing first-party documentation has also been audited;
-- clear findings inside the allowed scope have been corrected;
-- uncertain and out-of-scope findings have been reported;
+- the prose the user asked to audit has been reviewed at the requested time and within the requested boundary;
+- existing documentation has been audited only when the user instructed it;
+- clear findings inside the allowed scope have been corrected when edits were authorized, or reported for a review-only request;
+- uncertain findings and any limitations encountered within the requested work have been reported without searching outside the boundary;
 - technical meaning, compatibility constraints, and defined terminology have been preserved;
 - the final changes contain no unrelated general style cleanup.
 
