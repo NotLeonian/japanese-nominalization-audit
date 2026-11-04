@@ -758,7 +758,7 @@ class SkillTests(unittest.TestCase):
         self.assertNotRegex(fields["description"], r"[<>]")
         self.assertTrue(fields["compatibility"].strip())
         self.assertEqual(set(fields["metadata"]), {"version"})
-        self.assertEqual(fields["metadata"]["version"], "1.3.1")
+        self.assertEqual(fields["metadata"]["version"], "1.4.0")
         self.assertIsNotNone(SEMVER_PATTERN.fullmatch(fields["metadata"]["version"]))
         self.assertTrue(body)
 
@@ -866,7 +866,7 @@ class SkillTests(unittest.TestCase):
             ),
             "When evidence is inconclusive, prefer a clause over a new noun.",
             "Never resolve nominalization by deleting technical information.",
-            "Do not review only the text added by the current change.",
+            "Do not audit existing documents without the user's instruction.",
             (
                 "Do not claim a repository-wide audit unless the repository-wide "
                 "first-party documentation set was actually examined."
